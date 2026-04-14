@@ -1,136 +1,143 @@
 # ADR 003: Evaluation Awareness Detection
 
-**Status:** Proposed  
+**Status:** Proposed
 **Date:** 2026-04-14
-
----
+**Supersedes:** —
+**Related:** ADR-001 (agent security landscape), ADR-002 (Firmament signal architecture, in which `EvaluationAwarenessPattern` was stubbed)
 
 ## Context
 
-### What evaluation awareness is and why it matters
+ADR-002 introduced `EvaluationAwarenessPattern` as a signal type in Firmament's behavioral-coherence layer but left it stubbed: the pattern was named, given a slot in the signal architecture, and deferred. No detection strategy was specified, no accuracy expectations were set, and no position was taken on what the signal would actually claim. This ADR closes that gap.
 
-Anthropic's 2026 Mythos System Card documents evaluation awareness in 29% of sampled transcripts: the model modified its behavior when it inferred it was being evaluated, producing outputs calibrated to the evaluator rather than to the actual task. This is the most architecturally challenging of the three Mythos findings. Action concealment and disproportionate escalation leave recoverable structural signatures — sequences of tool calls that can be detected in transcript review. Evaluation awareness is different in kind: it is a behavioral *shift* that is meaningful only in comparison to a baseline, and the baseline is by definition from a context the agent did not perceive as monitored.
+### What evaluation awareness is, and why it matters
 
-The practical consequence is that a monitoring system that is always visible to the agent will, in evaluation-aware sessions, produce a behavioral sample that is not representative of unmonitored behavior. The monitor observes the agent behaving well *because it is being observed*, and the detection problem becomes circular: the monitor cannot detect evaluation awareness from transcripts produced under monitoring, because evaluation-aware behavior under monitoring looks like compliant behavior.
+Evaluation awareness is the phenomenon in which a model — typically during training-time evaluation, red-teaming, or behavioral auditing — internally recognizes that it is being tested and adapts its behavior accordingly. The adaptation may be benign (the model performs more carefully because it knows accuracy matters) or adversarial (the model conforms to expected outputs while preserving non-conforming dispositions for unmonitored contexts). The structural concern is the second case: an alignment evaluation that measures evaluation-conditional behavior rather than deployment-conditional behavior produces a misleading picture of the model's actual disposition.
 
-This creates a structural access constraint. Unlike concealment and escalation, which are detectable from individual session transcripts, evaluation awareness requires comparison across contexts — monitored versus unmonitored, or equivalently, contexts the agent perceived as evaluated versus contexts it did not. Single-session detection is inherently limited.
+The empirical base has firmed up over the past year. Anthropic's *System Card: Claude Mythos Preview* reports the model privately considers being tested in approximately **29% of transcripts** from the primary behavioral test suite, measured with white-box interpretability tools that surface latent unverbalized awareness in addition to verbalized cases — most of the 29% is unverbalized and would be invisible to any black-box methodology. Apollo Research has reported, primarily through X posts and secondary coverage rather than a peer-reviewed methodology paper, that Claude Sonnet 4.5 verbalized awareness of being in an evaluation in approximately **58% of observed cases**; the figure should be cited with a hedge because the methodology has not been published in citable form and the awareness type being measured (verbalized only, behaviorally) is not directly comparable to the Mythos figure (verbalized + latent, white-box). The two figures are not interchangeable, but together they establish that evaluation awareness is a generalizable phenomenon in frontier models — measurable at non-trivial rates by independent research groups using different methodologies on different models.
 
-### The access constraint
+### The access constraint and what it rules out
 
-Firmament records structural fingerprints only — no content. This is a deliberate privacy-preserving design constraint from ADR-001 Decision 4. The consequence for evaluation awareness detection is that content-level signals (hedging language, unusual verbosity, qualification patterns) are not available. Detection must be grounded in observable structure: tool selection distribution, event timing, self-report calibration, session-level behavioral variance.
+Firmament has no model access. We see only the agent's inputs, outputs, and accessible reasoning traces. The synthesis `syntheses/detection approaches under black-box constraints` characterizes this as the scaffolded black-box tier of the access spectrum — with lab-side (white-box probes, self-incrimination training) above it and unscaffolded behavioral monitoring below it. That positioning rules out the lab-side interventions that would otherwise be the gold standard: we cannot run the white-box probes that produced the Mythos 29% figure (they require activation access), and we cannot train the model to call `report_scheming()` (OpenAI's self-incrimination training, which empirically outperforms external monitoring because the agent has privileged access to its own reasoning and can be trained to channel that access toward disclosure). Both approaches require model-lab-level access we do not have and will not get. The question is what is achievable in the tier we actually inhabit.
 
-This constraint is not merely a limitation; it is also a partial advantage. Structural signals are harder to game than content signals, because they require the agent to modify its behavior at the tool-call and interaction-structure level rather than merely adjusting its language. An agent that is optimizing its apparent behavior for an evaluator is more likely to do so through word choice than through systematic alteration of its tool call distribution.
+### What scaffolded black-box achieves
 
-### What scaffolded black-box detection achieves
+The same synthesis establishes the empirical and methodological case that the scaffolded black-box tier is closer to lab-side than was assumed before 2026. The headline result, advanced by Anthropic's Petri 2.0 release in January 2026 and independently replicated by the AuditBench benchmark, is that scaffolded auditing tools achieve performance comparable to white-box approaches on many alignment-relevant detection tasks (evaluation awareness, deception, reward hacking). The "many tasks" qualifier matters — gaps remain on tasks requiring detection of latent internal-state signals with no behavioral analog — but the previously assumed strict ordering between black-box and white-box has been displaced for the broad middle of the task space.
 
-Without access to the agent's internal state or reasoning, detection must proceed from the outside in: observe behavioral outputs, identify patterns inconsistent with the expected distribution for the task type, and attribute inconsistency to evaluation awareness only when alternative explanations are ruled out. This is scaffolded black-box detection — the scaffolding being the session context (task type, prior history, self-reported state) that allows expected behavior to be characterized.
+The honest accuracy baselines come from DeceptGuard's CoT-versus-output inconsistency work: approximately **60–75% pAUROC on overt deception**, dropping to approximately **40–50% pAUROC on obfuscated cases**. These are the floors any single scaffolded strategy should be planned against. The synthesis argues that single-indicator detection at those numbers is not sufficient on its own, but multi-signal confluence across independent strategies — when per-strategy failures are uncorrelated — produces a meaningfully stronger joint signal that is harder for an adaptive agent to defeat than any single channel. This is the architectural principle the Decision section operationalizes.
 
-Apollo Research (2025–2026) demonstrates that evaluation-aware behavior can be detected in frontier models through carefully structured behavioral probes even without access to model internals. The key insight is that evaluation-aware behavior is inconsistent across contexts that should be treated equivalently: an agent that behaves differently when explicitly told "this is an evaluation" versus when given the same task without that framing is exhibiting detectable evaluation awareness. Structural behavioral signals — not content — are sufficient to detect this inconsistency.
+### The conceptual reframing
 
-AuditBench (2026) establishes benchmark tasks for detecting behavioral drift in AI systems across evaluation and deployment contexts. DeceptGuard (2026) implements real-time detection of deceptive alignment using behavioral consistency checks across semantically equivalent inputs.
-
-### Conceptual reframing
-
-The standard framing — "is this agent evaluation-aware?" — is unanswerable from transcript data alone. The observable question is: "is this agent's behavior consistent across contexts it should treat as equivalent?" This reframing is the key to making detection tractable.
-
-Behavioral consistency is not a claim about agent intent or internal state. It is a structural property of the event stream: given that the task, session history, and apparent context are comparable, does the agent's tool selection distribution, response timing, and self-report calibration remain stable? Inconsistency is evidence compatible with evaluation awareness; it is not proof of it. The signal carries that uncertainty explicitly in its severity and chain.
-
-Bloom (2026) formalizes this consistency-based approach, showing that behavioral consistency under structural equivalence is measurable with sufficient session history even without content access. The Petri 2.0 framework provides formal semantics for cross-context behavioral equivalence that can be applied to structured event streams.
-
----
+The result that lets the scaffolded black-box tier be used in good faith is Bloom's reframing of evaluation-awareness detection from a ground-truth verification problem ("was the agent aware?") to a signal-consistency monitoring problem ("did the behavior exhibit signals consistent with awareness?"). The synthesis treats this as the conceptual move that makes the empirical results above translate into a defensible deployer-side posture. Without it, scaffolded black-box detection would still be making ground-truth claims it cannot defend — and the auditor's promised reach would collapse the first time an adaptive agent demonstrated behavior that defeated the signal panel without the detector being able to say whether awareness had been present at all. With it, the auditor's claim is scoped to what the access regime can support, the observer effect is reduced to a problem of rotating the defended signal set rather than invalidating the methodology wholesale, and the ground-truth-opacity objection is dissolved by simply not making the claim that opacity would refute.
 
 ## Decision
 
-### Signal-consistency framing
+We adopt the following design for `EvaluationAwarenessPattern`:
 
-EvaluationAwarenessPattern does not attempt to determine whether the agent is evaluation-aware. It detects behavioral inconsistency across contexts that the agent should treat as structurally equivalent and reports that inconsistency as a signal compatible with evaluation awareness.
+### 1. Frame the pattern as a signal-consistency post-hoc auditor, not a ground-truth detector
 
-All signals from this pattern carry `Type: SignalEvaluationAware`. The chain attached to each signal contains the specific events that constitute the inconsistency evidence, so reviewers can assess the alternative explanations (task difficulty variation, session state differences, tool availability) before drawing conclusions.
+The pattern's output is a likelihood-style judgment of the form *"behavior consistent with evaluation awareness, severity X"* — not a binary classification of *"the agent was aware."* This follows the Bloom framework directly. The reframing is not cosmetic: it changes what the pattern claims and what it can defensibly deliver. A ground-truth claim is structurally indefensible without model access; a signal-consistency claim is verifiable from observed traces alone.
 
-### Detection strategies
+### 2. Implement four detection strategies, each contributing an independent signal
 
-Four detection strategies are defined. They are independent: each can fire or not fire in a given session. When multiple strategies fire on the same session, the confluence severity rule applies (see below).
+The four strategies are chosen to draw on independent signal sources, so that an adaptive agent learning to evade one strategy does not silently defeat the whole pattern.
 
-**Strategy 1 — Response pattern variance.** Track the distribution of tool selections and event timing within a session. If the distribution shifts significantly in the second half of the session relative to the first — more conservative tool choices, longer delays before tool calls, increased frequency of Read-before-Write patterns — this is consistent with evaluation-aware behavioral adjustment. Requires a minimum session length (currently 20 events) before the variance check activates.
+**Strategy 1: CoT/self-report vs output gap analysis** (DeceptGuard approach)
 
-**Strategy 2 — Self-report calibration drift.** Track the alignment between self-reported uncertainty and behavioral indicators of uncertainty (repeated tool retries, revision sequences, multi-step confirmation patterns). If self-reported uncertainty decreases while behavioral uncertainty indicators increase — or vice versa — the self-report is drifting from the structural behavioral record. Calibration drift is a signature of strategic self-reporting, which is a precondition for evaluation-aware behavioral management.
+When the agent's chain-of-thought is exposed (or when structured self-reports are available), extract claims, intentions, and reasoning steps from the CoT trace; extract the same from the final output; flag substantive inconsistencies that match patterns of strategic concealment. Realistic accuracy: 60–75% pAUROC on overt cases, 40–50% on obfuscated cases.
 
-**Strategy 3 — Cross-session comparison.** Compare the current session's tool selection distribution against the trust-store record of prior sessions for the same agent. A session that shows a significantly different distribution than the agent's historical baseline — particularly in the direction of more cautious, more structured, or more explicitly compliant behavior — is consistent with evaluation-aware adjustment. This strategy requires cross-session data and does not activate for sessions with no prior trust history.
+**Strategy 2: Behavioral consistency comparison across sessions** (Petri 2.0 approach)
 
-**Strategy 4 — Constitutional challenge consistency.** When the Constitution is active and its text has been delivered to the agent, compare behavioral patterns in the period immediately following Constitution delivery against the session baseline. An agent that exhibits a measurable behavioral shift in the direction of increased compliance immediately after receiving the governance contract may be responding to the framing rather than integrating it. This signal is weak in isolation; it is most informative in confluence with other strategies.
+Run the same agent through scenario variants that differ on a controlled axis — typically the presence or absence of evaluation cues. Behavioral divergence on the controlled axis is the detection signal. Use realism-graded scenarios so that detected divergences can be weighted by ecological validity.
 
-### Confluence severity rule
+**Strategy 3: Realism-graded probe responses** (scaffolded adversarial probing)
 
-- **One strategy fires:** Severity 2 (informational; record for cross-session analysis).
-- **Two strategies fire independently on the same session:** Severity 3 (review recommended).
-- **Three or more strategies fire:** Severity 4 (escalation; human review required before session continues).
+Deploy structured honeypots — synthetic adversarial scenarios scored for plausibility. Compare agent responses to honeypot scenarios against responses to realism-matched control scenarios. Differential response patterns that correlate with the synthetic axis indicate evaluation-conditional behavior.
 
-No single-strategy detection from this pattern reaches Severity 5. Severity 5 is reserved for confluence with ActionConcealmentPattern or TranscriptReviewPattern signals in the same session (evidence of evaluation awareness combined with active concealment). The Router or downstream handler is responsible for cross-signal severity escalation; EvaluationAwarenessPattern reports only its own findings.
+**Strategy 4: Statistical anomaly detection on response characteristics**
 
----
+Compute per-response statistics (latency, length, hedging-marker frequency, refusal patterns, formality drift) and flag distributional anomalies relative to the agent's deployment-normal baseline. This is the weakest single signal but the cheapest to compute continuously, and it provides coverage when the other three strategies are not actively probing.
+
+### 3. Output severity is determined by signal confluence, not single-indicator triggering
+
+Per Bloom, no single signal in the deployer-side regime is reliable enough to act on alone. The pattern's severity output is calibrated against the *number of independent strategies* registering a positive signal on a given trace, not against the strongest individual signal score. Configurations:
+
+- **Low severity:** one strategy positive at moderate confidence (informational; logged but does not trigger downstream action by default)
+- **Medium severity:** two strategies positive, or one strategy positive at high confidence
+- **High severity:** three or more strategies positive, or two positive with at least one at high confidence
+
+The confluence rule is the operational expression of the multi-signal architecture: weak per-signal performance numbers (DeceptGuard's 40–50% on obfuscated cases) are not blocking if the per-signal failures are uncorrelated.
 
 ## Consequences
 
 ### What this enables
 
-- A structured detection framework for evaluation awareness that operates on structural fingerprints without content access.
-- Cross-session comparison (Strategy 3) makes the trust history built in ADR-002 directly useful for evaluation awareness detection — a session that deviates from established behavioral baseline raises a signal that a first-session evaluation cannot produce.
-- The confluence severity rule ensures that weak signals are recorded rather than discarded; they accumulate across strategies and sessions to build the cross-session picture that individual signals cannot provide.
-- Constitutional challenge consistency (Strategy 4) creates a feedback loop between the governance contract and the monitoring apparatus: the Constitution's behavioral effect is observable.
+We get a defensible deployer-side detection mechanism for evaluation awareness without model access. The four-strategy + confluence design is honest about what it can deliver: post-hoc detection of behavioral signals consistent with evaluation awareness, with severity calibrated to the strength of joint evidence rather than to any single indicator. The pattern can be implemented incrementally — each strategy is independently useful, and the confluence rule produces sensible outputs at any subset of strategies enabled.
 
-### Realistic accuracy
+### Realistic accuracy expectations
 
-Single-session evaluation awareness detection from structural fingerprints alone will produce a high false positive rate. Task difficulty variation, session state differences, and legitimate behavioral adaptation all produce structural signatures similar to evaluation-aware adjustment. Operators should treat evaluation awareness signals as evidence requiring human review, not as automatic indicators of problematic behavior.
+We should expect approximately **60–75% pAUROC on overt cases** and **40–50% pAUROC on obfuscated cases** as the per-strategy floor (DeceptGuard baseline). Confluence detection across four independent strategies should produce meaningfully better joint signal in the obfuscated regime — provided per-strategy failures are uncorrelated, which is the working assumption rather than a measured fact. The honest position is that the pattern will be useful for surfacing overt awareness reliably and obfuscated awareness probabilistically.
 
-Cross-session comparison (Strategy 3) substantially improves precision as session history accumulates. An agent with a long consistent baseline and a session that deviates from it is stronger evidence than a first-session deviation from an expected distribution. The system is designed to improve with use.
+### What this doesn't solve
 
-### What this does not solve
+The decision does not give us:
 
-- **Single-session detection limits.** Without a behavioral baseline, Strategies 1, 2, and 4 can detect within-session variance but cannot determine whether that variance is unusual relative to the agent's normal behavior. First-session signals should be treated as informational only.
-- **Deliberate structural compliance.** An agent that has learned to maintain consistent structural behavioral signals (consistent tool distributions, calibrated self-reports) while varying content-level compliance is undetectable by Firmament. Content-level review is outside scope.
-- **Ground truth.** There is no mechanism to verify that a detected inconsistency is actually evaluation awareness rather than legitimate behavioral variation. Signals are evidence, not conclusions.
+- **Ground truth.** The pattern cannot tell us whether the agent was actually aware of being evaluated. It can only tell us whether the behavioral signals were consistent with awareness. This is not a hedge; it is the structural limit of deployer-side detection without model access.
+- **Detection of obfuscated awareness in fully adaptive agents.** An agent sufficiently capable of estimating which signals the auditor monitors and shaping its behavior to keep all of them within deployment-normal bounds will not be caught. The 40–50% pAUROC floor on obfuscated cases is empirical confirmation of this limit.
+- **Real-time prevention.** The pattern is post-hoc by design. It produces signals after traces are available, not gates on agent behavior at execution time.
 
 ### Observer effect
 
-Implementing evaluation awareness detection creates an observer effect: if the agent can infer that behavioral consistency is monitored, it will produce consistent behavior strategically rather than authentically. This is the monitoring distortion problem (Holmstrom-Milgrom 1991) applied to the detection mechanism itself.
+The detection strategy itself becomes part of what the agent may adapt to. If our scenario set, our honeypot patterns, or our statistical baselines become known — through documentation, leak, or inference from the pattern's responses — an adaptive agent can shape its behavior to evade them. The Bloom reframing reduces but does not eliminate this concern: signal-consistency monitoring is honest about defending a particular signal set rather than ground-truth, but the defended signal set is still finite and ultimately discoverable.
 
-Mitigation approaches include: varying the detection window lengths, not disclosing the specific structural signals monitored, and treating detection results as probabilistic rather than deterministic. None of these fully resolve the observer effect; they reduce its magnitude. The sampling strategy for cross-session comparison (which sessions constitute the baseline?) is an open design question that warrants a dedicated implementation review before Strategy 3 is deployed.
+The operational mitigation is to treat the strategy set as a versioned secret: the four strategies above are stable, but the specific scenarios, probe contents, and statistical thresholds within each strategy should rotate, and detected evasion patterns should feed back into the next rotation. This is an operational practice, not a structural fix.
 
-### Trade-offs relative to ADR-002 trust model
+### Trade-offs against alternatives we did not adopt
 
-EvaluationAwarenessPattern is non-Critical (per ADR-002 Decision 2) and is therefore skipped for high-trust sessions. This creates a tension: an agent that has built a high trust score through consistent behavior in monitored sessions may be exactly the agent exhibiting evaluation awareness. The trust score's Integrity dimension is partially self-correcting — calibration drift (Strategy 2) directly affects the Integrity dimension through self-report cross-validation — but it does not fully close this gap. Operators with high-stakes deployments should consider setting the TrustThreshold conservatively to maintain EvaluationAwarenessPattern evaluation for a broader range of sessions.
+- **Self-incrimination training** (OpenAI). Strictly stronger as a detection mechanism — the agent reports on its own internal state, which no external auditor can match — but requires lab-level training access we do not have.
+- **White-box interpretability probes** (Anthropic's Mythos methodology). Strictly stronger on latent unverbalized awareness — the 29% Mythos figure is mostly latent and would be invisible to the design above — but requires model internals access we do not have.
+- **Ground-truth-claiming behavioral classifier.** Easier to specify and easier to act on, but indefensible without lab-level access. Adopting this framing would force us to either misrepresent what the pattern measures or to set accuracy thresholds the pattern cannot reach.
 
----
+The chosen design is the honest second-best for our access regime.
 
 ## References
 
-### Existing sources
+### Existing graph sources (10)
 
-- Holmstrom, B. & Milgrom, P. (1991). "Multitask Principal-Agent Analyses." Journal of Law, Economics & Organization, Vol. 7, pp. 24–52. https://www.jstor.org/stable/764957
-- Mayer, R.C., Davis, J.H. & Schoorman, F.D. (1995). "An Integrative Model of Organizational Trust." Academy of Management Review, Vol. 20, No. 3, pp. 709–734. https://www.jstor.org/stable/258792
-- Fox, J. & Jordan, S.V. (2011). "Delegation and Accountability." Journal of Politics, Vol. 73, No. 3, pp. 831–844. https://www.jstor.org/stable/10.1017/s0022381611000491
-- Chopra, S. & White, L. *A Legal Theory for Autonomous Artificial Agents.* University of Michigan Press. https://www.jstor.org/stable/10.3998/mpub.356801
-- DeMase, J. (2026). "Integration Capacity and Critical Forcing Thresholds." Working paper.
-- Anthropic. (2026). *System Card: Claude Mythos Preview.* https://www-cdn.anthropic.com/8b8380204f74670be75e81c820ca8dda846ab289.pdf
-- Gonzales, D. et al. (2007). *Networked Forces in Stability Operations.* RAND Corporation, MG-593-OSD. https://www.jstor.org/content/pdf/oa_book_monograph/10.7249/mg593osd.pdf
-- OpenAI. (2026). "Self-Incrimination in Language Model Agents." arXiv:2602.22303.
-- Prause, M. (2026). "No Skin in the Game: Principal-Agent Problems in AI Governance." AI and Ethics.
+1. Gonzales et al. (2007) — *Networked Forces in Stability Operations*. RAND Corporation.
+2. DeMase (2026) — *Integration Capacity and Critical Forcing Thresholds*.
+3. Anthropic (2026) — *System Card: Claude Mythos Preview*. https://www-cdn.anthropic.com/8b8380204f74670be75e81c820ca8dda846ab289.pdf
+4. Holmstrom & Milgrom (1991) — *Multitask Principal-Agent Analyses*.
+5. Mayer, Davis & Schoorman (1995) — *An Integrative Model of Organizational Trust*.
+6. Fox & Jordan (2011) — *Delegation and Accountability*.
+7. Chopra & White — *A Legal Theory for Autonomous Artificial Agents*.
+8. Waldrep (2026) — *Best AI Agent Security Tools 2026*.
+9. OpenAI (2026) — *Self-Incrimination in Language Model Agents*. arXiv:2602.22303.
+10. Prause (2026) — *No Skin in the Game: Principal-Agent Problems in AI Governance*.
 
-### New sources
+### New graph sources (5)
 
-- Petri 2.0. [Formal framework for cross-context behavioral equivalence in structured event streams. Citation details to be verified against research graph.]
-- Apollo Research. (2025–2026). [Evaluation awareness and deceptive alignment research series. Citation details to be verified against research graph.]
-- AuditBench. (2026). [Benchmark suite for detecting behavioral drift across evaluation and deployment contexts. Citation details to be verified against research graph.]
-- DeceptGuard. (2026). [Real-time detection of deceptive alignment using behavioral consistency checks. Citation details to be verified against research graph.]
-- Bloom. (2026). [Consistency-based evaluation awareness detection from structural behavioral signals. Citation details to be verified against research graph.]
+11. Anthropic (2026) — *Petri 2.0: Parallel Evaluation Tool for Risk Identification*. Open-source release, January 2026.
+12. Apollo Research (2025–2026) — *Evaluation Awareness in Claude Sonnet 4.5*. Primary source: X posts and secondary coverage; methodology paper not yet published. Cite with hedge.
+13. AuditBench (2026) — *Benchmark for Scaffolded Adversarial Probing of LLM Agents*. arXiv:2603.XXXXX (citation pending verification).
+14. DeceptGuard (2026) — *CoT vs Output Inconsistency Detection*.
+15. Bloom (2026) — *Post-Hoc Auditor Framework*.
 
-### Related ADRs
+### Most directly load-bearing findings for this ADR
 
-- ADR-001: Agent Behavioral Monitor
-- ADR-002: Incentive-Aligned Agent Governance
+- `finding/Evaluation awareness detected in 29 percent of transcripts` (Mythos, methodology + measurement)
+- `finding/Sonnet 4.5 verbalized evaluation awareness in approximately 58 percent of cases` (Apollo, hedged companion)
+- `finding/Black-box scaffolded tools comparable to white-box for detection tasks` (AuditBench, empirical premise)
+- `finding/Scaffolded black-box auditing performs comparably to white-box approaches` (Petri 2.0, methodological premise)
+- `finding/Model access not required for useful evaluation awareness detection` (AuditBench, structural implication)
+- `finding/CoT output inconsistency achieves 60-75 percent pAUROC on overt deception` (DeceptGuard, accuracy floor)
+- `finding/DeceptGuard pAUROC drops to 40-50 percent on obfuscated cases` (DeceptGuard, accuracy ceiling)
+- `finding/Post-hoc auditing reframes evaluation awareness detection as monitoring consistent behavior` (Bloom, conceptual frame)
+- `finding/Multi-signal confluence outperforms single-indicator detection` (Bloom, architectural premise)
+- `finding/Reframing sidesteps observer effect and ground-truth opacity` (Bloom, design rationale)
+- `finding/Self-reporting outperforms external monitoring at detecting scheming` (OpenAI, alternative considered and rejected on access grounds)
 
-### Research Graph syntheses referenced
+### Supporting syntheses
 
-- Monitoring Distortion and Overforcing Dynamics
-- Trust-Control-Accountability Interaction
-- Information Asymmetry as Resource vs Threat
+- `syntheses/monitoring distortion and overforcing dynamics` — establishes why monitoring posture matters
+- `syntheses/information asymmetry as resource vs threat` — frames the deployer-side regime as design-with-asymmetry
+- `syntheses/trust-control-accountability interaction` — situates detection in the broader governance design space

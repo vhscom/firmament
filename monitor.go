@@ -6,6 +6,16 @@ import (
 	"time"
 )
 
+// Monitor implements ADR-001 Decision 6: EventSource as the unified ingestion
+// point for all agent observability signals, and ADR-002 Decision 1: self-report
+// cross-validation as a trust calibration mechanism.
+// Research basis: Fox & Jordan (2011) demonstrate that ex-post verification of
+// agent behavior is sufficient for accountability without real-time surveillance.
+// See docs/adr/001-firmament-core-architecture.md and docs/adr/002-trust-model.md.
+// Related findings: Holmstrom-Milgrom (1991) warn that partial monitoring distorts
+// agent behavior; the EventSource abstraction ensures coverage breadth while the
+// trust model reduces monitoring pressure on demonstrably reliable sessions.
+//
 // Monitor ingests events from registered EventSources, maintains per-session
 // event history in an EventRing, evaluates behavioral Patterns on each event,
 // and emits Signals on a channel for downstream routing.

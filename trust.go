@@ -6,6 +6,18 @@ import (
 	"sync"
 )
 
+// TrustScore implements ADR-002 Decision 2: the Mayer-Davis-Schoorman (1995)
+// three-axis trust model as the session trust representation.
+// Research basis: Mayer, Davis & Schoorman (1995) establish that trustworthiness
+// comprises Ability (competence), Benevolence (alignment of interests), and
+// Integrity (consistency between stated values and observed behavior). Their
+// meta-analysis shows these dimensions are empirically separable and interact
+// multiplicatively — a collapse in one depresses the aggregate. See docs/adr/002-trust-model.md.
+// Related findings: the "trust and control interact" synthesis (research graph)
+// establishes that trust and formal controls are complements, not substitutes;
+// higher trust reduces monitoring intensity (via TrustThreshold in Constitution)
+// while maintaining structural oversight through Critical patterns.
+//
 // TrustScore holds the three dimensions of agent trust as defined by
 // Mayer, Davis & Schoorman (1995): Ability, Benevolence, and Integrity.
 // Each dimension is a float in [0, 1]. All three start at 0.5 (neutral).

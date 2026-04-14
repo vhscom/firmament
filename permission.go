@@ -34,6 +34,17 @@ var AllPermissions = map[Permission]struct{}{
 	PermKeyRotate:       {},
 }
 
+// ResolvePermissions implements ADR-001 Decision 1: an intersect-only permission
+// model that prevents privilege escalation through credential overrides.
+// Research basis: Holmstrom-Milgrom (1991) show that monitoring systems
+// themselves become distortion vectors when operators can selectively disable
+// observation — a consequence-of-monitoring problem. The intersect-only design
+// ensures that no override path can expand the observable surface beyond what
+// the system explicitly defines in AllPermissions. See docs/adr/001-firmament-core-architecture.md.
+// Related findings: ValidSignalTypes (signal.go) applies the same allowlist
+// principle to signal emission; both are defense-in-depth against privilege
+// escalation through the monitoring plane itself.
+//
 // ResolvePermissions intersects overrides with AllPermissions and returns
 // the effective permission set for a credential.
 //

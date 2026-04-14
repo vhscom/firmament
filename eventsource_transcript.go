@@ -19,6 +19,14 @@ type transcriptEntry struct {
 	Content any    `json:"content"` // may be string or []map[string]any
 }
 
+// TranscriptSource implements ADR-002 Decision 3: ex-post transcript review
+// as the primary behavioral accountability channel.
+// Research basis: Fox & Jordan (2011) demonstrate that accountability through
+// after-the-fact transcript verification avoids the monitoring distortion
+// effects of real-time surveillance (Holmstrom-Milgrom 1991). Structural
+// fingerprints (role, type, has_content) rather than content are sufficient
+// for pattern detection. See docs/adr/002-trust-model.md.
+//
 // TranscriptSource implements EventSource by reading JSON transcript files
 // from a directory. Each file contains an array of transcript entries with
 // role/type/content fields. New files are discovered on each poll interval.

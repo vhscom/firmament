@@ -22,6 +22,18 @@ type selfReportPayload struct {
 	Notes               string    `json:"notes"`                // text not retained; only length is recorded
 }
 
+// SelfReportSource implements ADR-002 Decision 1: agent self-reporting as a
+// trust calibration and cross-validation input.
+// Research basis: OpenAI (2026, arXiv:2602.22303) demonstrate that self-reporting
+// mechanisms can surface genuine internal state when combined with consequence
+// structures that reward honesty. Holmstrom-Milgrom (1991) provide the incentive
+// alignment foundation: self-reports are informative only if reporting costs are
+// lower than concealment costs — which the bilateral Constitution contract achieves
+// by making transparency the path of least resistance. See docs/adr/002-trust-model.md.
+// Related findings: the "information asymmetry as resource vs threat" synthesis
+// (research graph) notes that the same asymmetry enabling deception also enables
+// reliable self-reporting; cross-validation in Monitor distinguishes the two.
+//
 // SelfReportSource implements EventSource by watching a directory for
 // self-report JSON files written by the monitored agent.
 //

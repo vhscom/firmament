@@ -1,4 +1,9 @@
-// Optional verification channel.
+// Package-level note: HookEventSource is an optional verification channel.
+// ADR-002 deprioritizes real-time hook-based monitoring in favor of ex-post
+// transcript review (Fox-Jordan 2011), because real-time instrumentation
+// creates the monitoring distortion effects documented by Holmstrom-Milgrom
+// (1991). Hooks remain available for environments where transcript files are
+// not accessible. See docs/adr/002-trust-model.md.
 package firmament
 
 import (

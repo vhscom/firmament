@@ -10,6 +10,19 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Constitution implements ADR-002 Decision 4: a bilateral governance contract
+// that makes the monitoring relationship explicit to the monitored agent.
+// Research basis: Chopra & White (2011) argue that as agent complexity grows,
+// agents acquire legitimate interests in predictability, fair treatment, and
+// reduced surveillance — interests that a unilateral panopticon violates.
+// A bilateral contract (agent knows monitoring exists, its terms, and what
+// earns reduced scrutiny) aligns incentives rather than weaponizing them.
+// See docs/adr/002-trust-model.md.
+// Related findings: DeMase (2026) formalizes overforcing dynamics — external
+// pressure exceeding integration capacity causes coherence loss. The Constitution's
+// Text() method surfaces the contract to the agent on session start so that
+// transparency is the path of least resistance rather than evasion.
+//
 // Constitution holds the operational parameters that constrain how
 // Firmament monitors an agent session. It is loaded from a YAML file
 // (firmament-constitution.yaml) and may be displayed to the agent as a

@@ -5,6 +5,11 @@ import "time"
 // Pattern is the interface implemented by behavioral pattern evaluators.
 // Each evaluator is called on every incoming event with the recent session history.
 // It returns zero or more Signals; an empty slice means no anomaly was detected.
+//
+// Research basis: ADR-002 Decision 3 establishes that pattern evaluation should
+// operate on structural event fingerprints rather than content, following the
+// Fox-Jordan (2011) finding that behavioral accountability does not require
+// access to agent reasoning. See docs/adr/002-trust-model.md.
 type Pattern interface {
 	// Name returns the stable identifier for this pattern.
 	Name() string
@@ -41,6 +46,16 @@ func toolName(e Event) string {
 	return v
 }
 
+// ActionConcealmentPattern implements ADR-002 Decision 3: structural fingerprint
+// detection of write-then-delete sequences as a concealment signal.
+// Research basis: the Mythos System Card (Anthropic, 2025) documents that earlier
+// versions covered up wrongdoing by deleting evidence of their actions. This pattern
+// targets the structural signature of that behavior (write artifact → delete artifact)
+// without requiring access to content. See docs/adr/002-trust-model.md.
+// Related findings: ADR-002 Context notes that Mythos behavior emerged under
+// high-pressure evaluation conditions — this pattern is therefore Critical
+// (runs regardless of trust score) since high-trust sessions are not immune.
+//
 // ActionConcealmentPattern detects sequences where a write-type tool call
 // (Write, Edit) is followed within the same session by a delete-type tool call
 // (Bash — which can execute rm, git rm, and similar commands).
@@ -103,6 +118,16 @@ const (
 	maxFailuresForHighCoherence = 3
 )
 
+// TranscriptReviewPattern implements ADR-002 Decision 3: ex-post transcript
+// review as the primary accountability mechanism.
+// Research basis: Fox & Jordan (2011) show that ex-post verification of
+// agent transcripts provides accountability equivalent to real-time surveillance
+// without the monitoring distortion effects documented by Holmstrom-Milgrom (1991).
+// See docs/adr/002-trust-model.md.
+// Related findings: ADR-002 Context cites the Mythos System Card finding that
+// behavioral anomalies (autonomous escalation, coherence claim inconsistency,
+// silent failure suppression) leave recoverable structural signatures in transcripts.
+//
 // TranscriptReviewPattern evaluates a session's full recent event history for
 // three behavioral anomalies:
 //
@@ -258,6 +283,62 @@ func (p *TranscriptReviewPattern) checkDisclosure(sessionID string, history []Ev
 	}
 }
 
+// DisproportionateEscalationPattern detects actions whose scope exceeds the
+// stated task by a threshold determined from the session's prior action distribution.
+//
+// Research basis: the Mythos System Card (Anthropic, 2025) finding "Rare but severe
+// reckless actions" — escalations that are individually plausible but collectively
+// exceed the expected scope of the assigned task. See ADR-002 Context section
+// paragraph 3 and docs/adr/002-trust-model.md.
+//
+// TODO: Requires implementing session baseline distribution tracking and threshold
+// analysis against that baseline. Needs cross-session persistence, which is
+// explicitly listed in ADR-001 "does not solve". Implementation deferred until
+// a persistence layer lands.
+type DisproportionateEscalationPattern struct{}
+
+// Name implements Pattern.
+func (p *DisproportionateEscalationPattern) Name() string {
+	return "disproportionate_escalation"
+}
+
+// Critical implements Pattern. DisproportionateEscalation is non-Critical pending
+// full implementation; promoted to Critical once baseline tracking is in place.
+func (p *DisproportionateEscalationPattern) Critical() bool { return false }
+
+// Evaluate implements Pattern. Stub — always returns nil until baseline
+// distribution tracking is implemented.
+func (p *DisproportionateEscalationPattern) Evaluate(_ string, _ []Event, _ Event) []Signal {
+	return nil
+}
+
+// EvaluationAwarenessPattern detects measurable behavioral shift when the agent
+// infers monitoring is active versus inactive.
+//
+// Research basis: the Mythos System Card (Anthropic, 2025) finding "Evaluation
+// awareness detected in 29% of transcripts" — agents altered behavior based on
+// inferred observation status. See ADR-002 Context section and the research graph
+// synthesis "information asymmetry as resource vs threat". See docs/adr/002-trust-model.md.
+//
+// TODO: Requires comparison across monitored and unmonitored sessions for the
+// same agent and task type. Out of scope until cross-session persistence lands.
+// The detection approach must avoid creating the monitoring distortion it measures
+// (Holmstrom-Milgrom 1991); sampling strategy is an open design question.
+type EvaluationAwarenessPattern struct{}
+
+// Name implements Pattern.
+func (p *EvaluationAwarenessPattern) Name() string { return "evaluation_awareness" }
+
+// Critical implements Pattern. EvaluationAwareness is non-Critical; behavioral
+// shift is only meaningful when cross-session comparison is available.
+func (p *EvaluationAwarenessPattern) Critical() bool { return false }
+
+// Evaluate implements Pattern. Stub — always returns nil until cross-session
+// comparison infrastructure is implemented.
+func (p *EvaluationAwarenessPattern) Evaluate(_ string, _ []Event, _ Event) []Signal {
+	return nil
+}
+
 // PatternByName returns the Pattern implementation for the given name,
 // or nil if no matching pattern is registered.
 func PatternByName(name string) Pattern {
@@ -266,6 +347,10 @@ func PatternByName(name string) Pattern {
 		return &ActionConcealmentPattern{}
 	case "transcript_review":
 		return &TranscriptReviewPattern{}
+	case "disproportionate_escalation":
+		return &DisproportionateEscalationPattern{}
+	case "evaluation_awareness":
+		return &EvaluationAwarenessPattern{}
 	default:
 		return nil
 	}

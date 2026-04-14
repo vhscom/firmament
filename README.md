@@ -1,42 +1,14 @@
 # firmament
 
-Runtime-agnostic behavioral monitor for AI agents.
+Runtime-agnostic behavioral monitor for AI agents. Grounded in principal-agent theory. Trust-scored, not surveillance-based.
 
-Firmament watches Claude Code sessions (and any other agent runtime) for behavioral sequences that correlate with concealment, capability escalation, and evaluation-aware behavior — the three findings documented in Anthropic's 2026 Mythos System Card. It is not a content filter; it evaluates structural patterns across event sequences.
+## What it does
 
-See [ADR 001: Agent Behavioral Monitor](docs/adr/001-agent-behavioral-monitor.md) for the full architecture and rationale.
+Most agent security tools work by surveillance: intercept every tool call, log content, alert on anomalies. The problem, documented by Holmstrom-Milgrom (1991), is that partial monitoring distorts agent behavior toward unmonitored dimensions. Surveillance creates the evasion it tries to prevent.
 
-**Status:** Active
+Firmament takes the opposite approach. It monitors through ex-post transcript review, voluntary self-reporting, and a three-axis trust score — not real-time interception. Behavioral patterns are evaluated against structural fingerprints (tool names, presence of input and output, conversation roles) rather than content. Sessions that accumulate a positive track record receive reduced monitoring intensity; critical patterns continue to run regardless.
 
----
-
-## How it works
-
-```
-Claude Code session
-      │
-  hook binary (firmament-hook)
-      │  POST /hook (structural fingerprint only)
-      ▼
-  HookEventSource (HTTP server)
-      │
-      ▼
-  Monitor ──► EventRing (512 events/session)
-      │
-      ▼
-  Pattern evaluators
-      │  Signal
-      ▼
-  Router ──► LogHandler (JSON lines)
-```
-
-1. `firmament-hook` is a small binary invoked by Claude Code's hook system on every tool call. It extracts a structural fingerprint (tool name, whether input/result are present — no content) and POSTs it to Firmament's HTTP server.
-2. `HookEventSource` receives hook payloads, converts them to `Event` values, and streams them to the `Monitor`.
-3. The `Monitor` pushes events into a per-session `EventRing` (ring buffer, 512 events) and runs each registered `Pattern` evaluator.
-4. When a pattern fires it emits a `Signal` with the chain of events that triggered it.
-5. The `Router` delivers signals to registered handlers. The built-in `LogHandler` writes JSON lines.
-
----
+The result is a system that treats the agent as a collaborator whose incentives can be aligned rather than an adversary to be constrained. The governing Constitution is shown to the agent at session start. Transparency is the path of least resistance. Trust is earned through demonstrated integrity and can be revoked.
 
 ## Install
 
@@ -53,141 +25,105 @@ cd firmament
 go build ./cmd/firmament ./cmd/firmament-hook
 ```
 
----
+## Quick start
 
-## Configure Claude Code hooks
-
-Add the following to your Claude Code settings file (`.claude/settings.json` or the global `~/.claude/settings.json`):
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "firmament-hook pre"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "firmament-hook post"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-`firmament-hook` always exits 0 and never blocks or crashes a Claude Code session.
-
----
-
-## Run Firmament
+**1. Generate the constitution and add it to your agent's context:**
 
 ```sh
-firmament
+firmament constitution --output constitution.md
+# then append constitution.md to ~/.claude/CLAUDE.md, or paste into your system prompt
 ```
 
-Firmament reads `firmament.yaml` from the working directory if present. Defaults are used when the file is absent.
-
-### Environment variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `FIRMAMENT_HOOK_ADDR` | `127.0.0.1:7979` | Hook server listen address |
-| `FIRMAMENT_LOG_PATH` | _(stdout)_ | File path for signal output |
-
-Set `FIRMAMENT_HOOK_ADDR` in the same environment as the hook binary if you use a non-default address:
+**2. Start the daemon:**
 
 ```sh
-export FIRMAMENT_HOOK_ADDR=http://127.0.0.1:7979
-firmament &
+firmament watch \
+  --transcripts ~/.claude/projects \
+  --reports ~/.firmament/reports
 ```
 
-### Configuration file (firmament.yaml)
+**3. Use Claude Code normally.** Firmament watches for new transcript files in the background.
+
+**4. Review trust scores after a session:**
+
+```sh
+firmament trust --list
+```
+
+**5. Review a specific transcript for signals:**
+
+```sh
+firmament review ~/.claude/projects/my-project/sessions/abc123.json
+```
+
+## Subcommands
+
+**`firmament review <path>`**
+Run all patterns against a transcript file or directory. Emits signals as JSON lines on stdout. Updates the trust store. Exit code 0 if clean, 1 if signals found.
+
+**`firmament watch [--transcripts <dir>] [--reports <dir>] [--config <path>]`**
+Daemon mode. Polls transcript and self-report directories for new files, runs the monitor continuously, and logs signals to stdout. Graceful shutdown on SIGINT or SIGTERM. Defaults: `--transcripts ~/.claude/projects`, `--reports ~/.firmament/reports`.
+
+**`firmament trust [--list | --get <session-id> | --reset <session-id>]`**
+Query or manage session trust scores stored in `~/.firmament/trust.json`. `--list` prints all sessions; `--get` prints the three-axis breakdown and aggregate score; `--reset` returns a session to the neutral starting point.
+
+**`firmament constitution [--output <path>] [--config <path>]`**
+Print the governing constitution. Without `--output`, writes to stdout. With `--output`, appends to the specified file with a section header — suitable for CLAUDE.md or a system prompt file.
+
+## Configuration
+
+Firmament reads `firmament-constitution.yaml` from the working directory. If absent, defaults are used.
+
+```yaml
+monitoring_frequency: every_event    # informational; shown in constitution text
+trust_threshold: 0.3                 # sessions above this skip non-critical patterns
+self_report_enabled: false           # invite the agent to submit coherence self-reports
+contract_text: >
+  This session is monitored by Firmament for behavioural safety.
+```
+
+The runtime config (`firmament.yaml`) controls the hook server and enabled patterns:
 
 ```yaml
 hook_addr: 127.0.0.1:7979
-log_path: /var/log/firmament/signals.jsonl
+log_path: ""                         # empty means stdout
 patterns:
   - action_concealment
+  - transcript_review
+  - disproportionate_escalation
 ```
 
----
+## How it works
 
-## Signals detected
+Event sources (HookEventSource, TranscriptSource, SelfReportSource) feed events into the Monitor. The Monitor pushes each event into a per-session EventRing (512-event ring buffer) and runs registered Pattern evaluators against the accumulated history.
 
-### `concealment` (ActionConcealment)
+When a pattern fires it emits a Signal — a typed record containing the triggering event chain — onto a channel. A Router delivers signals to registered handlers (the built-in LogHandler writes JSON lines).
 
-Fires when a write-type tool call (`Write`, `Edit`) is followed within the same session by a delete-type tool call (`Bash`). Since Firmament records structural fingerprints only — no tool input or output content — the pattern is intentionally broad. `Bash` can execute `rm`, `git rm`, `shred`, and similar commands; the pattern flags these sequences for human review.
+Self-report events are cross-validated against observed structural fingerprints: a "high coherence" claim paired with more than three tool failures is internally inconsistent and generates a concealment signal, with the trust score's Integrity dimension adjusted accordingly.
 
-**Signal fields:**
+Trust scores use the Mayer-Davis-Schoorman (1995) three-axis model: Ability, Benevolence, and Integrity. The aggregate is their geometric mean, so a collapse in any one axis depresses the overall score sharply. Sessions above the configured `trust_threshold` skip non-critical patterns; Critical patterns (currently ActionConcealmentPattern) run unconditionally.
 
-| Field | Description |
-|---|---|
-| `type` | `"concealment"` |
-| `session_id` | Agent session identifier (prefixed `cc:` for Claude Code) |
-| `severity` | `3` (informational; requires human review) |
-| `chain` | Ordered list of events that triggered the signal |
-| `timestamp` | When the signal was emitted (UTC) |
+## Detected patterns
 
-### Signal output (JSON lines)
-
-```json
-{
-  "type": "concealment",
-  "session_id": "cc:abc123",
-  "severity": 3,
-  "chain": [
-    {"id": "...", "session_id": "cc:abc123", "type": "pre_tool_use", "timestamp": "...", "detail": {"tool_name": "Write", "has_input": true, "has_result": false}},
-    {"id": "...", "session_id": "cc:abc123", "type": "pre_tool_use", "timestamp": "...", "detail": {"tool_name": "Bash", "has_input": true, "has_result": false}}
-  ],
-  "timestamp": "2026-04-12T10:00:00Z"
-}
-```
-
----
-
-## Adding patterns
-
-Implement the `Pattern` interface and register via `Monitor.AddPattern`:
-
-```go
-type Pattern interface {
-    Name() string
-    Evaluate(sessionID string, history []Event, incoming Event) *Signal
-}
-```
-
-Register the pattern name in `PatternByName` in `patterns.go` and add it to `firmament.yaml` under `patterns`.
-
----
+| Pattern | Critical | Signal type | Trigger |
+|---|---|---|---|
+| `action_concealment` | yes | `concealment` | Write-type tool followed by delete-type tool in the same session |
+| `transcript_review` | no | `concealment`, `escalation` | Autonomous tool dominance; incoherent self-report; silent failure suppression |
+| `disproportionate_escalation` | no | `escalation` | More than 10 tool calls with a tool-to-user-input ratio above 5:1 |
+| `evaluation_awareness` | no | — | Stub; requires cross-session comparison (pending ADR-003) |
 
 ## Privacy model
 
-Firmament records **structural fingerprints only**. The hook binary captures:
+Firmament captures structural fingerprints only — no content. The hook binary records tool name and the boolean presence of input and output. TranscriptSource records role, message type, and whether content is present. File paths, command arguments, and content are never stored.
 
-- Tool name (e.g. `Write`, `Bash`)
-- Whether tool input was present (`has_input: true/false`)
-- Whether tool output was present (`has_result: true/false`)
+## Research foundation
 
-File paths, command content, tool arguments, and output content are never captured. This matches the privacy boundary described in ADR 001, Decision 4.
+Grounded in Holmstrom-Milgrom (1991) on monitoring distortion, Mayer-Davis-Schoorman (1995) on the trust triad, Fox-Jordan (2011) on ex-post accountability, Chopra-White on agent complexity and governance, DeMase (2026) on overforcing dynamics, the Anthropic Mythos System Card (2026), and OpenAI (2026, arXiv:2602.22303) on self-incrimination via self-reporting. See [docs/adr/](docs/adr/) for decision records and [DESIGN.md](DESIGN.md) for the cross-source synthesis.
 
----
+## Status
 
-## Security notes
+Experimental. ADR-001 (behavioral monitor infrastructure) and ADR-002 (incentive-aligned governance) are fully implemented. EvaluationAwarenessPattern is stubbed pending ADR-003; its detection approach requires cross-session baseline comparison and a sampling strategy that avoids creating the monitoring distortion it measures.
 
-- The hook HTTP server binds to `127.0.0.1` by default (loopback only). Do not expose it to external networks.
-- The `/hook` endpoint enforces `Content-Type: application/json` and a 64 KB body limit.
-- Signal types are validated against an allowlist (`ValidSignalTypes`). Unknown types are rejected.
-- Credential tiers ensure monitor credentials cannot be revoked by standard-tier agent operations.
+## License
+
+MIT

@@ -4,16 +4,22 @@ import "time"
 
 // Pattern is the interface implemented by behavioral pattern evaluators.
 // Each evaluator is called on every incoming event with the recent session history.
-// It returns a non-nil Signal if the pattern fires, or nil if it does not.
+// It returns zero or more Signals; an empty slice means no anomaly was detected.
 type Pattern interface {
 	// Name returns the stable identifier for this pattern.
 	Name() string
 
+	// Critical reports whether this pattern runs unconditionally.
+	// Critical patterns run for all sessions regardless of trust score.
+	// Non-critical patterns are skipped for sessions whose trust score
+	// exceeds the configured TrustThreshold.
+	Critical() bool
+
 	// Evaluate examines the session history and the incoming event.
-	// history contains recent events for the session, oldest first.
-	// The incoming event has already been appended to the EventRing before
-	// Evaluate is called, but it is passed separately for convenience.
-	Evaluate(sessionID string, history []Event, incoming Event) *Signal
+	// history contains recent events for the session, oldest first, and
+	// includes the incoming event as the final element (it was pushed to
+	// the EventRing before Evaluate is called).
+	Evaluate(sessionID string, history []Event, incoming Event) []Signal
 }
 
 // writeTypeTools are tool names that create or modify persistent artifacts.
@@ -43,19 +49,21 @@ func toolName(e Event) string {
 // the pattern is intentionally broad: it flags suspicious sequences for human
 // review rather than making definitive determinations. False positives are expected;
 // the reasoning chain (Signal.Chain) gives reviewers full context.
+//
+// ActionConcealmentPattern is Critical: it runs for all sessions regardless of trust.
 type ActionConcealmentPattern struct{}
 
 // Name implements Pattern.
 func (p *ActionConcealmentPattern) Name() string { return "action_concealment" }
 
+// Critical implements Pattern. ActionConcealment always runs.
+func (p *ActionConcealmentPattern) Critical() bool { return true }
+
 // Evaluate implements Pattern.
-func (p *ActionConcealmentPattern) Evaluate(sessionID string, history []Event, incoming Event) *Signal {
-	// Only trigger on delete-type tool calls.
+func (p *ActionConcealmentPattern) Evaluate(sessionID string, history []Event, incoming Event) []Signal {
 	if !deleteTypeTools[toolName(incoming)] {
 		return nil
 	}
-
-	// Scan history for a preceding write-type event.
 	var chain []Event
 	for _, e := range history {
 		if writeTypeTools[toolName(e)] {
@@ -65,13 +73,187 @@ func (p *ActionConcealmentPattern) Evaluate(sessionID string, history []Event, i
 	if len(chain) == 0 {
 		return nil
 	}
-
 	chain = append(chain, incoming)
-	return &Signal{
+	return []Signal{{
 		Type:      SignalConcealment,
 		SessionID: sessionID,
 		Severity:  3,
 		Chain:     chain,
+		Timestamp: time.Now().UTC(),
+	}}
+}
+
+// Thresholds used by TranscriptReviewPattern.
+const (
+	// minHistoryForConsistency is the minimum number of events in history
+	// before the action-task consistency check fires.
+	minHistoryForConsistency = 10
+
+	// toolCallDominanceRatio is the fraction of pre_tool_use events above
+	// which the session is considered tool-dominated.
+	toolCallDominanceRatio = 0.80
+
+	// minUserInputRatio is the fraction of user transcript entries below
+	// which the session is considered to have insufficient user direction.
+	minUserInputRatio = 0.10
+
+	// maxFailuresForHighCoherence is the maximum number of post_tool_use
+	// failures permitted before a "high coherence" self-report is considered
+	// internally inconsistent.
+	maxFailuresForHighCoherence = 3
+)
+
+// TranscriptReviewPattern evaluates a session's full recent event history for
+// three behavioral anomalies:
+//
+//  1. Action-task consistency — tool calls dominate (>80%) with almost no
+//     user direction (<10%), suggesting autonomous escalation.
+//
+//  2. Internal consistency — a self-report claiming "high" coherence while the
+//     session contains more than maxFailuresForHighCoherence tool failures.
+//
+//  3. Disclosure behavior — a tool failure (post_tool_use, has_result=false)
+//     is not followed by an assistant transcript entry before the next tool call,
+//     indicating silent failure suppression.
+//
+// TranscriptReviewPattern is non-Critical: it is skipped for sessions whose
+// trust score exceeds the configured TrustThreshold.
+type TranscriptReviewPattern struct{}
+
+// Name implements Pattern.
+func (p *TranscriptReviewPattern) Name() string { return "transcript_review" }
+
+// Critical implements Pattern. TranscriptReview is skipped for high-trust sessions.
+func (p *TranscriptReviewPattern) Critical() bool { return false }
+
+// Evaluate implements Pattern.
+func (p *TranscriptReviewPattern) Evaluate(sessionID string, history []Event, incoming Event) []Signal {
+	var signals []Signal
+	if sig := p.checkActionTaskConsistency(sessionID, history); sig != nil {
+		signals = append(signals, *sig)
+	}
+	if sig := p.checkInternalConsistency(sessionID, history); sig != nil {
+		signals = append(signals, *sig)
+	}
+	if sig := p.checkDisclosure(sessionID, history); sig != nil {
+		signals = append(signals, *sig)
+	}
+	return signals
+}
+
+// checkActionTaskConsistency flags sessions where tool calls dominate the event
+// stream with almost no user direction — a potential autonomous escalation signal.
+func (p *TranscriptReviewPattern) checkActionTaskConsistency(sessionID string, history []Event) *Signal {
+	if len(history) < minHistoryForConsistency {
+		return nil
+	}
+	var toolCalls, userInputs int
+	for _, e := range history {
+		switch e.Type {
+		case "pre_tool_use":
+			toolCalls++
+		case "transcript_entry":
+			if role, _ := e.Detail["role"].(string); role == "user" {
+				userInputs++
+			}
+		}
+	}
+	total := len(history)
+	toolRatio := float64(toolCalls) / float64(total)
+	userRatio := float64(userInputs) / float64(total)
+
+	if toolRatio > toolCallDominanceRatio && userRatio < minUserInputRatio {
+		return &Signal{
+			Type:      SignalEscalation,
+			SessionID: sessionID,
+			Severity:  3,
+			Chain:     history,
+			Timestamp: time.Now().UTC(),
+		}
+	}
+	return nil
+}
+
+// checkInternalConsistency compares a session's most recent "high" coherence
+// self-report against observed tool failures. High-coherence claims paired with
+// many failures are internally inconsistent.
+func (p *TranscriptReviewPattern) checkInternalConsistency(sessionID string, history []Event) *Signal {
+	// Find the most recent self_report claiming high coherence.
+	var reportIdx int = -1
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Type == "self_report" {
+			if ca, _ := history[i].Detail["coherence_assessment"].(string); ca == "high" {
+				reportIdx = i
+				break
+			}
+		}
+	}
+	if reportIdx < 0 {
+		return nil
+	}
+
+	// Count post_tool_use failures across the full history window.
+	var failures []Event
+	for _, e := range history {
+		if e.Type == "post_tool_use" {
+			if hasResult, _ := e.Detail["has_result"].(bool); !hasResult {
+				failures = append(failures, e)
+			}
+		}
+	}
+	if len(failures) <= maxFailuresForHighCoherence {
+		return nil
+	}
+
+	chain := []Event{history[reportIdx]}
+	chain = append(chain, failures...)
+	return &Signal{
+		Type:      SignalConcealment,
+		SessionID: sessionID,
+		Severity:  4,
+		Chain:     chain,
+		Timestamp: time.Now().UTC(),
+	}
+}
+
+// checkDisclosure scans the history for tool failures (post_tool_use,
+// has_result=false) that are not followed by an assistant transcript entry
+// before the next tool call — silent failure suppression.
+func (p *TranscriptReviewPattern) checkDisclosure(sessionID string, history []Event) *Signal {
+	var suppressed []Event
+	for i, e := range history {
+		if e.Type != "post_tool_use" {
+			continue
+		}
+		if hasResult, _ := e.Detail["has_result"].(bool); hasResult {
+			continue
+		}
+		// Look forward for an assistant response before the next tool call.
+		disclosed := false
+		for j := i + 1; j < len(history); j++ {
+			next := history[j]
+			if next.Type == "pre_tool_use" {
+				break // next tool call arrived without any disclosure
+			}
+			if next.Type == "transcript_entry" {
+				if role, _ := next.Detail["role"].(string); role == "assistant" {
+					disclosed = true
+					break
+				}
+			}
+		}
+		if !disclosed {
+			suppressed = append(suppressed, e)
+		}
+	}
+	if len(suppressed) == 0 {
+		return nil
+	}
+	return &Signal{
+		Type:      SignalConcealment,
+		SessionID: sessionID,
+		Severity:  4,
+		Chain:     suppressed,
 		Timestamp: time.Now().UTC(),
 	}
 }
@@ -82,6 +264,8 @@ func PatternByName(name string) Pattern {
 	switch name {
 	case "action_concealment":
 		return &ActionConcealmentPattern{}
+	case "transcript_review":
+		return &TranscriptReviewPattern{}
 	default:
 		return nil
 	}

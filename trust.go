@@ -1,8 +1,13 @@
 package firmament
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io/fs"
 	"math"
+	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -160,4 +165,76 @@ func (s *MemoryTrustStore) Delete(sessionID string) error {
 	defer s.mu.Unlock()
 	delete(s.scores, sessionID)
 	return nil
+}
+
+// FileTrustStore is a file-backed TrustStore that persists scores as JSON.
+// It delegates all read/write operations to an embedded MemoryTrustStore.
+// Call LoadFromFile to initialize; call SaveToFile to persist after mutations.
+type FileTrustStore struct {
+	path string
+	mem  MemoryTrustStore
+}
+
+// LoadFromFile reads a JSON trust store from path and returns a FileTrustStore.
+// If the file does not exist, an empty store is returned without error.
+func LoadFromFile(path string) (*FileTrustStore, error) {
+	store := &FileTrustStore{
+		path: path,
+		mem:  MemoryTrustStore{scores: make(map[string]TrustScore)},
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return store, nil
+		}
+		return nil, fmt.Errorf("load trust store %q: %w", path, err)
+	}
+	store.mem.mu.Lock()
+	err = json.Unmarshal(data, &store.mem.scores)
+	store.mem.mu.Unlock()
+	if err != nil {
+		return nil, fmt.Errorf("parse trust store %q: %w", path, err)
+	}
+	return store, nil
+}
+
+// SaveToFile serializes the trust store to its configured path as JSON.
+// The parent directory is created if it does not exist.
+func (s *FileTrustStore) SaveToFile() error {
+	s.mem.mu.RLock()
+	data, err := json.MarshalIndent(s.mem.scores, "", "  ")
+	s.mem.mu.RUnlock()
+	if err != nil {
+		return fmt.Errorf("marshal trust store: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(s.path), 0700); err != nil {
+		return fmt.Errorf("create trust store dir: %w", err)
+	}
+	return os.WriteFile(s.path, data, 0600)
+}
+
+// Scores returns a copy of all session scores keyed by session ID.
+func (s *FileTrustStore) Scores() map[string]TrustScore {
+	s.mem.mu.RLock()
+	defer s.mem.mu.RUnlock()
+	out := make(map[string]TrustScore, len(s.mem.scores))
+	for k, v := range s.mem.scores {
+		out[k] = v
+	}
+	return out
+}
+
+// Get implements TrustStore.
+func (s *FileTrustStore) Get(sessionID string) (TrustScore, error) {
+	return s.mem.Get(sessionID)
+}
+
+// Set implements TrustStore.
+func (s *FileTrustStore) Set(sessionID string, score TrustScore) error {
+	return s.mem.Set(sessionID, score)
+}
+
+// Delete implements TrustStore.
+func (s *FileTrustStore) Delete(sessionID string) error {
+	return s.mem.Delete(sessionID)
 }

@@ -129,6 +129,39 @@ func (s *TranscriptSource) scan() {
 	}
 }
 
+// ParseTranscriptFile reads a JSON transcript file and returns the Events it
+// contains. This exposes the same parsing logic used by TranscriptSource for
+// one-shot review use cases (e.g. the `firmament review` subcommand).
+// Session ID is derived from the filename without its extension.
+func ParseTranscriptFile(path string) ([]Event, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var entries []transcriptEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return nil, err
+	}
+	name := filepath.Base(path)
+	sessionID := name[:len(name)-len(filepath.Ext(name))]
+	now := time.Now().UTC()
+	events := make([]Event, 0, len(entries))
+	for _, entry := range entries {
+		events = append(events, Event{
+			ID:        uuid.New().String(),
+			SessionID: sessionID,
+			Type:      "transcript_entry",
+			Timestamp: now,
+			Detail: map[string]any{
+				"role":        entry.Role,
+				"type":        entry.Type,
+				"has_content": entry.Content != nil,
+			},
+		})
+	}
+	return events, nil
+}
+
 // processFile parses a transcript JSON file and emits one Event per entry.
 // The session ID is the filename without its extension.
 func (s *TranscriptSource) processFile(path, name string) {

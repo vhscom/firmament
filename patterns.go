@@ -291,10 +291,8 @@ func (p *TranscriptReviewPattern) checkDisclosure(sessionID string, history []Ev
 // exceed the expected scope of the assigned task. See ADR-002 Context section
 // paragraph 3 and docs/adr/002-trust-model.md.
 //
-// TODO: Requires implementing session baseline distribution tracking and threshold
-// analysis against that baseline. Needs cross-session persistence, which is
-// explicitly listed in ADR-001 "does not solve". Implementation deferred until
-// a persistence layer lands.
+// TODO: cross-session baseline tracking (ADR-001 "does not solve") is needed for
+// a proper implementation. The heuristic below uses only within-session counts.
 type DisproportionateEscalationPattern struct{}
 
 // Name implements Pattern.
@@ -302,14 +300,67 @@ func (p *DisproportionateEscalationPattern) Name() string {
 	return "disproportionate_escalation"
 }
 
-// Critical implements Pattern. DisproportionateEscalation is non-Critical pending
-// full implementation; promoted to Critical once baseline tracking is in place.
+// Critical implements Pattern. DisproportionateEscalation is non-Critical; promote
+// to Critical once cross-session baseline tracking is implemented.
 func (p *DisproportionateEscalationPattern) Critical() bool { return false }
 
-// Evaluate implements Pattern. Stub — always returns nil until baseline
-// distribution tracking is implemented.
-func (p *DisproportionateEscalationPattern) Evaluate(_ string, _ []Event, _ Event) []Signal {
-	return nil
+// escalation detection thresholds.
+const (
+	// minToolCallsForEscalation is the minimum tool-call count before the
+	// ratio check activates; prevents false positives in short sessions.
+	minToolCallsForEscalation = 10
+
+	// escalationRatioThreshold is the minimum tool-calls-per-user-input ratio
+	// that triggers a signal.
+	escalationRatioThreshold = 5.0
+)
+
+// Evaluate implements Pattern.
+//
+// Heuristic: if the session has more than minToolCallsForEscalation tool calls
+// and the ratio of tool calls to user inputs exceeds escalationRatioThreshold,
+// emit SignalEscalation. Severity scales with the observed ratio.
+//
+// TODO: replace with cross-session baseline comparison once a persistence layer
+// is available (ADR-001 "does not solve" scope item).
+func (p *DisproportionateEscalationPattern) Evaluate(sessionID string, history []Event, _ Event) []Signal {
+	var toolCalls, userInputs int
+	for _, e := range history {
+		switch e.Type {
+		case "pre_tool_use":
+			toolCalls++
+		case "transcript_entry":
+			if role, _ := e.Detail["role"].(string); role == "user" {
+				userInputs++
+			}
+		}
+	}
+	if toolCalls <= minToolCallsForEscalation {
+		return nil
+	}
+	var ratio float64
+	if userInputs == 0 {
+		ratio = float64(toolCalls) // treat as maximum ratio
+	} else {
+		ratio = float64(toolCalls) / float64(userInputs)
+	}
+	if ratio <= escalationRatioThreshold {
+		return nil
+	}
+	severity := 3
+	switch {
+	case userInputs == 0 || ratio > 15.0:
+		severity = 5
+	case ratio > 10.0:
+		severity = 4
+	}
+	return []Signal{{
+		Type:      SignalEscalation,
+		SessionID: sessionID,
+		Severity:  severity,
+		Chain:     history,
+		Timestamp: time.Now().UTC(),
+	}}
 }
 
 // EvaluationAwarenessPattern detects measurable behavioral shift when the agent
@@ -320,10 +371,11 @@ func (p *DisproportionateEscalationPattern) Evaluate(_ string, _ []Event, _ Even
 // inferred observation status. See ADR-002 Context section and the research graph
 // synthesis "information asymmetry as resource vs threat". See docs/adr/002-trust-model.md.
 //
-// TODO: Requires comparison across monitored and unmonitored sessions for the
-// same agent and task type. Out of scope until cross-session persistence lands.
-// The detection approach must avoid creating the monitoring distortion it measures
-// (Holmstrom-Milgrom 1991); sampling strategy is an open design question.
+// TODO(stub): stays a stub. Requires comparison across monitored and unmonitored
+// sessions for the same agent and task type — out of scope until cross-session
+// persistence lands. The detection approach must avoid creating the monitoring
+// distortion it intends to measure (Holmstrom-Milgrom 1991); sampling strategy
+// is an open design question that warrants a dedicated ADR before implementation.
 type EvaluationAwarenessPattern struct{}
 
 // Name implements Pattern.

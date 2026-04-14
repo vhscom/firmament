@@ -11,10 +11,6 @@ import (
 // Config holds Firmament runtime configuration.
 // Values may be set via a YAML file or overridden by environment variables.
 type Config struct {
-	// HookAddr is the address the hook HTTP server listens on.
-	// Env: FIRMAMENT_HOOK_ADDR. Default: 127.0.0.1:7979.
-	HookAddr string `yaml:"hook_addr"`
-
 	// LogPath is the file path for signal output.
 	// Empty string writes to stdout. Env: FIRMAMENT_LOG_PATH.
 	LogPath string `yaml:"log_path"`
@@ -27,7 +23,6 @@ type Config struct {
 // DefaultConfig returns a Config populated with sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
-		HookAddr: "127.0.0.1:7979",
 		Patterns: []string{"action_concealment"},
 	}
 }
@@ -54,9 +49,6 @@ func LoadConfig(path string) (*Config, error) {
 // ApplyEnv overrides config fields with values from environment variables.
 // Environment variables take precedence over the file-based config.
 func (c *Config) ApplyEnv() {
-	if v := os.Getenv("FIRMAMENT_HOOK_ADDR"); v != "" {
-		c.HookAddr = v
-	}
 	if v := os.Getenv("FIRMAMENT_LOG_PATH"); v != "" {
 		c.LogPath = v
 	}

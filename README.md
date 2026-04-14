@@ -14,7 +14,6 @@ The result is a system that treats the agent as a collaborator whose incentives 
 
 ```sh
 go install github.com/vhscom/firmament/cmd/firmament@latest
-go install github.com/vhscom/firmament/cmd/firmament-hook@latest
 ```
 
 Or build from source:
@@ -22,7 +21,7 @@ Or build from source:
 ```sh
 git clone https://github.com/vhscom/firmament
 cd firmament
-go build ./cmd/firmament ./cmd/firmament-hook
+go build ./cmd/firmament
 ```
 
 ## Quick start
@@ -82,10 +81,9 @@ contract_text: >
   This session is monitored by Firmament for behavioural safety.
 ```
 
-The runtime config (`firmament.yaml`) controls the hook server and enabled patterns:
+The runtime config (`firmament.yaml`) controls log output and enabled patterns:
 
 ```yaml
-hook_addr: 127.0.0.1:7979
 log_path: ""                         # empty means stdout
 patterns:
   - action_concealment
@@ -95,7 +93,7 @@ patterns:
 
 ## How it works
 
-Event sources (HookEventSource, TranscriptSource, SelfReportSource) feed events into the Monitor. The Monitor pushes each event into a per-session EventRing (512-event ring buffer) and runs registered Pattern evaluators against the accumulated history.
+Event sources (TranscriptSource, SelfReportSource) feed events into the Monitor. The Monitor pushes each event into a per-session EventRing (512-event ring buffer) and runs registered Pattern evaluators against the accumulated history.
 
 When a pattern fires it emits a Signal — a typed record containing the triggering event chain — onto a channel. A Router delivers signals to registered handlers (the built-in LogHandler writes JSON lines).
 
@@ -114,7 +112,7 @@ Trust scores use the Mayer-Davis-Schoorman (1995) three-axis model: Ability, Ben
 
 ## Privacy model
 
-Firmament captures structural fingerprints only — no content. The hook binary records tool name and the boolean presence of input and output. TranscriptSource records role, message type, and whether content is present. File paths, command arguments, and content are never stored.
+Firmament captures structural fingerprints only — no content. TranscriptSource records role, message type, and whether content is present. File paths, command arguments, and content are never stored.
 
 ## Research foundation
 

@@ -229,3 +229,9 @@ Extend the Firmament UI from a proxy dashboard into a session monitor. Four addi
 
 - Anthropic. (2026). "The advisor strategy." Claude Platform. https://x.com/claudeai/status/2042308622181339453
 - OpenClaw memory-wiki plugin — Vault structure with sources, entities, concepts, syntheses, and reports namespaces. https://docs.openclaw.ai/plugins/memory-wiki
+
+---
+
+## Addendum
+
+Decision 4 (Egress observation hooks) and the companion `HookEventSource` implementation (`eventsource_hook.go`) and hook binary (`cmd/firmament-hook/`) were removed per ADR-002's architectural clarification. Real-time hook-based monitoring creates observable monitoring pressure that an evaluation-aware agent can adapt to — the precise dynamic ADR-002 identifies as counterproductive (Holmstrom-Milgrom monitoring distortion). `TranscriptSource` and `SelfReportSource` cover the same observability needs without real-time surveillance pressure. See `DESIGN.md §Deprecations` for the full rationale.

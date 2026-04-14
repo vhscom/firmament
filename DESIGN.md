@@ -45,10 +45,16 @@ Resolution: both constraints apply. EventSource is runtime-agnostic (Gonzales �
 ## Architectural Principles
 
 1. **Transparency is the path of least resistance.** The Constitution is shown to the agent; trust rewards honest self-reporting; monitoring intensity decreases with demonstrated reliability.
-2. **Accountability through ex-post review, not real-time surveillance.** TranscriptSource and TranscriptReviewPattern are the primary accountability channel; hooks are an optional supplement.
+2. **Accountability through ex-post review, not real-time surveillance.** TranscriptSource and TranscriptReviewPattern are the primary accountability channel.
 3. **Agent complexity warrants bilateral governance contracts.** The Constitution is not a unilateral constraint — it is a statement of mutual expectations, including what the agent earns by meeting them.
 4. **Information asymmetry is a resource when harnessed, a threat when ignored.** Self-reporting captures privileged agent state; cross-validation catches strategic misrepresentation.
 5. **Trust is earned through demonstrated integrity and can be revoked.** TrustScore dimensions decay without active maintenance; UpdateFromReview and UpdateFromSelfReport provide the feedback loop.
+
+## Deprecations
+
+### HookEventSource (removed)
+
+Previously shipped as an optional verification channel (ADR-001 Decision 4 legacy). Deleted because real-time hook monitoring contradicts ADR-002's incentive-alignment thesis — it creates observable monitoring pressure the agent can adapt to. TranscriptSource and SelfReportSource provide the same information without the observer effect.
 
 ## Research Graph Reference
 

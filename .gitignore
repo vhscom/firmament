@@ -5,6 +5,7 @@
 *.so
 *.dylib
 /firmament
+/firmament-hook
 
 # Test binary, built with `go test -c`
 *.test

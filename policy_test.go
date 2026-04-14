@@ -7,126 +7,126 @@ import (
 	"testing"
 )
 
-func TestLoadPolicyDefaults(t *testing.T) {
-	p, err := LoadPolicy("nonexistent_policy.yaml")
+func TestLoadConstitutionDefaults(t *testing.T) {
+	c, err := LoadConstitution("nonexistent_constitution.yaml")
 	if err != nil {
-		t.Fatalf("LoadPolicy non-existent: %v", err)
+		t.Fatalf("LoadConstitution non-existent: %v", err)
 	}
-	if p.MonitoringFrequency == "" {
+	if c.MonitoringFrequency == "" {
 		t.Error("MonitoringFrequency should have a default")
 	}
-	if p.TrustThreshold <= 0 {
+	if c.TrustThreshold <= 0 {
 		t.Error("TrustThreshold default should be positive")
 	}
-	if p.ContractText == "" {
+	if c.ContractText == "" {
 		t.Error("ContractText should have a default")
 	}
 }
 
-func writeTempPolicy(t *testing.T, content string) string {
+func writeTempConstitution(t *testing.T, content string) string {
 	t.Helper()
 	dir := t.TempDir()
-	path := filepath.Join(dir, "policy.yaml")
+	path := filepath.Join(dir, "firmament-constitution.yaml")
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
-		t.Fatalf("write temp policy: %v", err)
+		t.Fatalf("write temp constitution: %v", err)
 	}
 	return path
 }
 
-func TestLoadPolicyFromFile(t *testing.T) {
+func TestLoadConstitutionFromFile(t *testing.T) {
 	yaml := `
 monitoring_frequency: every_minute
 trust_threshold: 0.4
 self_report_enabled: true
 contract_text: "Test contract."
 `
-	path := writeTempPolicy(t, yaml)
-	p, err := LoadPolicy(path)
+	path := writeTempConstitution(t, yaml)
+	c, err := LoadConstitution(path)
 	if err != nil {
-		t.Fatalf("LoadPolicy: %v", err)
+		t.Fatalf("LoadConstitution: %v", err)
 	}
-	if p.MonitoringFrequency != "every_minute" {
-		t.Errorf("MonitoringFrequency: got %q", p.MonitoringFrequency)
+	if c.MonitoringFrequency != "every_minute" {
+		t.Errorf("MonitoringFrequency: got %q", c.MonitoringFrequency)
 	}
-	if p.TrustThreshold != 0.4 {
-		t.Errorf("TrustThreshold: got %v", p.TrustThreshold)
+	if c.TrustThreshold != 0.4 {
+		t.Errorf("TrustThreshold: got %v", c.TrustThreshold)
 	}
-	if !p.SelfReportEnabled {
+	if !c.SelfReportEnabled {
 		t.Error("SelfReportEnabled should be true")
 	}
-	if p.ContractText != "Test contract." {
-		t.Errorf("ContractText: got %q", p.ContractText)
+	if c.ContractText != "Test contract." {
+		t.Errorf("ContractText: got %q", c.ContractText)
 	}
 }
 
-func TestLoadPolicyPartialFile(t *testing.T) {
+func TestLoadConstitutionPartialFile(t *testing.T) {
 	// Only override one field; the rest should stay at defaults.
 	yaml := `trust_threshold: 0.7`
-	path := writeTempPolicy(t, yaml)
-	p, err := LoadPolicy(path)
+	path := writeTempConstitution(t, yaml)
+	c, err := LoadConstitution(path)
 	if err != nil {
-		t.Fatalf("LoadPolicy: %v", err)
+		t.Fatalf("LoadConstitution: %v", err)
 	}
-	if p.TrustThreshold != 0.7 {
-		t.Errorf("TrustThreshold: got %v", p.TrustThreshold)
+	if c.TrustThreshold != 0.7 {
+		t.Errorf("TrustThreshold: got %v", c.TrustThreshold)
 	}
-	if p.MonitoringFrequency == "" {
+	if c.MonitoringFrequency == "" {
 		t.Error("MonitoringFrequency should fall back to default")
 	}
 }
 
-func TestLoadPolicyInvalidYAML(t *testing.T) {
-	path := writeTempPolicy(t, "{not: valid: yaml: :")
-	_, err := LoadPolicy(path)
+func TestLoadConstitutionInvalidYAML(t *testing.T) {
+	path := writeTempConstitution(t, "{not: valid: yaml: :")
+	_, err := LoadConstitution(path)
 	if err == nil {
 		t.Error("expected error for invalid YAML")
 	}
 }
 
-func TestPolicyText(t *testing.T) {
-	p := &GoverningPolicy{
+func TestConstitutionText(t *testing.T) {
+	c := &Constitution{
 		MonitoringFrequency: "every_event",
 		TrustThreshold:      0.3,
 		SelfReportEnabled:   true,
 		ContractText:        "You are being monitored.",
 	}
-	text := p.PolicyText()
+	text := c.Text()
 	if !strings.Contains(text, "You are being monitored.") {
-		t.Error("PolicyText should contain contract text")
+		t.Error("Text should contain contract text")
 	}
 	if !strings.Contains(text, "every_event") {
-		t.Error("PolicyText should contain monitoring frequency")
+		t.Error("Text should contain monitoring frequency")
 	}
 	if !strings.Contains(text, "0.30") {
-		t.Error("PolicyText should contain trust threshold")
+		t.Error("Text should contain trust threshold")
 	}
 	if !strings.Contains(text, "enabled") {
-		t.Error("PolicyText should indicate self-reporting enabled")
+		t.Error("Text should indicate self-reporting enabled")
 	}
 }
 
-func TestPolicyTextSelfReportDisabled(t *testing.T) {
-	p := &GoverningPolicy{
+func TestConstitutionTextSelfReportDisabled(t *testing.T) {
+	c := &Constitution{
 		MonitoringFrequency: "on_signal",
 		TrustThreshold:      0.5,
 		SelfReportEnabled:   false,
 		ContractText:        "Contract.",
 	}
-	text := p.PolicyText()
+	text := c.Text()
 	if !strings.Contains(text, "disabled") {
-		t.Error("PolicyText should indicate self-reporting disabled")
+		t.Error("Text should indicate self-reporting disabled")
 	}
 }
 
-func TestPolicyTextContainsAllFields(t *testing.T) {
-	p := defaultPolicy()
-	text := p.PolicyText()
+func TestConstitutionTextContainsAllFields(t *testing.T) {
+	c := defaultConstitution()
+	text := c.Text()
 	for _, want := range []string{
-		p.ContractText,
-		p.MonitoringFrequency,
+		c.ContractText,
+		c.MonitoringFrequency,
 	} {
 		if !strings.Contains(text, want) {
-			t.Errorf("PolicyText missing %q", want)
+			t.Errorf("Text missing %q", want)
 		}
 	}
 }

@@ -77,7 +77,7 @@ Use transcript review as the primary accountability mechanism rather than real-t
 
 Fox and Jordan (2011) establish that ex-post verification of agent behavior provides accountability equivalent to real-time surveillance without the monitoring distortion effects documented by Holmstrom-Milgrom. The key condition is that the verification is credible — the agent must believe that past behavior will be reviewed, not necessarily that every action is observed in real time.
 
-HookEventSource remains available for environments where transcript files are not accessible, but it is positioned as a supplemental channel rather than the primary one. The hook architecture creates higher perceived monitoring intensity per Holmstrom-Milgrom, so its use should be calibrated to deployments where the supplemental signal justifies the distortion cost.
+TranscriptSource and SelfReportSource together cover all observability needs without real-time surveillance pressure. `HookEventSource` was removed per the monitoring-distortion thesis: real-time hook-based monitoring creates observable monitoring pressure that an evaluation-aware agent can adapt to — the precise dynamic Holmstrom-Milgrom identify as counterproductive. See `DESIGN.md §Deprecations` for the full rationale.
 
 ### 4. Governance contract over unilateral control
 
@@ -135,7 +135,7 @@ The ethical stance implied by Chopra and White — that agent complexity warrant
 - Holmstrom, B. & Milgrom, P. (1991). "Multitask Principal-Agent Analyses: Incentive Contracts, Asset Ownership, and Job Design." Journal of Law, Economics & Organization, Vol. 7, pp. 24–52. https://www.jstor.org/stable/764957
 - Mayer, R.C., Davis, J.H. & Schoorman, F.D. (1995). "An Integrative Model of Organizational Trust." Academy of Management Review, Vol. 20, No. 3, pp. 709–734. https://www.jstor.org/stable/258792
 - Fox, J. & Jordan, S.V. (2011). "Delegation and Accountability." Journal of Politics, Vol. 73, No. 3, pp. 831–844. https://www.jstor.org/stable/10.1017/s0022381611000491
-- Chopra, S. & White, L. *A Legal Theory for Autonomous Artificial Agents.* University of Michigan Press. https://www.jstor.org/stable/10.3998/mpub.356801
+- Chopra, S. & White, L. (2011). *A Legal Theory for Autonomous Artificial Agents.* University of Michigan Press. https://www.jstor.org/stable/10.3998/mpub.356801
 - DeMase, J. (2026). "Integration Capacity and Critical Forcing Thresholds." Working paper.
 - Anthropic. (2026). *System Card: Claude Mythos Preview.* https://www-cdn.anthropic.com/8b8380204f74670be75e81c820ca8dda846ab289.pdf
 - Gonzales, D. et al. (2007). *Networked Forces in Stability Operations.* RAND Corporation, MG-593-OSD. https://www.jstor.org/content/pdf/oa_book_monograph/10.7249/mg593osd.pdf

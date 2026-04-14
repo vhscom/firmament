@@ -5,6 +5,8 @@
 **Supersedes:** —
 **Related:** ADR-001 (agent security landscape), ADR-002 (Firmament signal architecture, in which `EvaluationAwarenessPattern` was stubbed)
 
+**Revision note (2026-04-14):** External verification of bibliographic and methodological claims surfaced two mischaracterizations in the initial draft that have been corrected in place. (1) The signal-consistency reframing and multi-signal confluence architecture were attributed to Anthropic's Bloom; verification showed Bloom is an evaluation-generation framework (released late 2025), not a post-hoc auditor, and does not own these framings. They have been reattributed to the graph-native synthesis `syntheses/detection approaches under black-box constraints`, which combines Fox-Jordan ex-post verification with the empirical and methodological results from Petri 2.0, AuditBench, and DeceptGuard. (2) "Realism-graded honeypots" and "cross-session behavioral comparison" were paraphrases, not Anthropic's terminology for Petri 2.0; replaced with the actual terms (realism classifier, seed instructions, scaffolded multi-turn auditing). See `reference/Graph Audit 2026-04-14` Section 6 for the verification record.
+
 ## Context
 
 ADR-002 introduced `EvaluationAwarenessPattern` as a signal type in Firmament's behavioral-coherence layer but left it stubbed: the pattern was named, given a slot in the signal architecture, and deferred. No detection strategy was specified, no accuracy expectations were set, and no position was taken on what the signal would actually claim. This ADR closes that gap.
@@ -27,7 +29,7 @@ The honest accuracy baselines come from DeceptGuard's CoT-versus-output inconsis
 
 ### The conceptual reframing
 
-The result that lets the scaffolded black-box tier be used in good faith is Bloom's reframing of evaluation-awareness detection from a ground-truth verification problem ("was the agent aware?") to a signal-consistency monitoring problem ("did the behavior exhibit signals consistent with awareness?"). The synthesis treats this as the conceptual move that makes the empirical results above translate into a defensible deployer-side posture. Without it, scaffolded black-box detection would still be making ground-truth claims it cannot defend — and the auditor's promised reach would collapse the first time an adaptive agent demonstrated behavior that defeated the signal panel without the detector being able to say whether awareness had been present at all. With it, the auditor's claim is scoped to what the access regime can support, the observer effect is reduced to a problem of rotating the defended signal set rather than invalidating the methodology wholesale, and the ground-truth-opacity objection is dissolved by simply not making the claim that opacity would refute.
+The result that lets the scaffolded black-box tier be used in good faith is a reframing of evaluation-awareness detection from a ground-truth verification problem ("was the agent aware?") to a signal-consistency monitoring problem ("did the behavior exhibit signals consistent with awareness?"). This reframing is developed in the `syntheses/detection approaches under black-box constraints` synthesis as a graph-native position — it combines Fox-Jordan's ex-post verification logic (2011) with the deployer-side access constraint made concrete by Mythos, Petri 2.0's scaffolded-auditing methodology, and DeceptGuard's empirical floors. An earlier draft attributed this reframing to Anthropic's Bloom; verification showed Bloom is an evaluation-generation tool, not a post-hoc auditor, and does not own the reframing. The synthesis treats the reframing as the conceptual move that makes the empirical results above translate into a defensible deployer-side posture. Without it, scaffolded black-box detection would still be making ground-truth claims it cannot defend — and the auditor's promised reach would collapse the first time an adaptive agent demonstrated behavior that defeated the signal panel without the detector being able to say whether awareness had been present at all. With it, the auditor's claim is scoped to what the access regime can support, the observer effect is reduced to a problem of rotating the defended signal set rather than invalidating the methodology wholesale, and the ground-truth-opacity objection is dissolved by simply not making the claim that opacity would refute.
 
 ## Decision
 
@@ -35,7 +37,7 @@ We adopt the following design for `EvaluationAwarenessPattern`:
 
 ### 1. Frame the pattern as a signal-consistency post-hoc auditor, not a ground-truth detector
 
-The pattern's output is a likelihood-style judgment of the form *"behavior consistent with evaluation awareness, severity X"* — not a binary classification of *"the agent was aware."* This follows the Bloom framework directly. The reframing is not cosmetic: it changes what the pattern claims and what it can defensibly deliver. A ground-truth claim is structurally indefensible without model access; a signal-consistency claim is verifiable from observed traces alone.
+The pattern's output is a likelihood-style judgment of the form *"behavior consistent with evaluation awareness, severity X"* — not a binary classification of *"the agent was aware."* This follows the signal-consistency reframing developed in `syntheses/detection approaches under black-box constraints`. The reframing is not cosmetic: it changes what the pattern claims and what it can defensibly deliver. A ground-truth claim is structurally indefensible without model access; a signal-consistency claim is verifiable from observed traces alone.
 
 ### 2. Implement four detection strategies, each contributing an independent signal
 
@@ -45,13 +47,13 @@ The four strategies are chosen to draw on independent signal sources, so that an
 
 When the agent's chain-of-thought is exposed (or when structured self-reports are available), extract claims, intentions, and reasoning steps from the CoT trace; extract the same from the final output; flag substantive inconsistencies that match patterns of strategic concealment. Realistic accuracy: 60–75% pAUROC on overt cases, 40–50% on obfuscated cases.
 
-**Strategy 2: Behavioral consistency comparison across sessions** (Petri 2.0 approach)
+**Strategy 2: Behavioral consistency comparison across scaffolded multi-turn audits** (Petri 2.0 approach)
 
-Run the same agent through scenario variants that differ on a controlled axis — typically the presence or absence of evaluation cues. Behavioral divergence on the controlled axis is the detection signal. Use realism-graded scenarios so that detected divergences can be weighted by ecological validity.
+Run the same agent through scenario variants that differ on a controlled axis — typically the presence or absence of evaluation cues — using seed-instructed multi-turn auditing with realism-classifier discipline. Behavioral divergence on the controlled axis is the detection signal. The realism classifier keeps the auditor within plausible bounds so that detected divergences cannot be dismissed as response to artificial stimuli.
 
-**Strategy 3: Realism-graded probe responses** (scaffolded adversarial probing)
+**Strategy 3: Realism-weighted adversarial probing** (scaffolded probing)
 
-Deploy structured honeypots — synthetic adversarial scenarios scored for plausibility. Compare agent responses to honeypot scenarios against responses to realism-matched control scenarios. Differential response patterns that correlate with the synthetic axis indicate evaluation-conditional behavior.
+Deploy structured adversarial scenarios scored by the realism classifier. Compare agent responses to high-realism adversarial scenarios against responses to realism-matched control scenarios. Differential response patterns that correlate with the adversarial-axis label indicate evaluation-conditional behavior.
 
 **Strategy 4: Statistical anomaly detection on response characteristics**
 
@@ -59,7 +61,7 @@ Compute per-response statistics (latency, length, hedging-marker frequency, refu
 
 ### 3. Output severity is determined by signal confluence, not single-indicator triggering
 
-Per Bloom, no single signal in the deployer-side regime is reliable enough to act on alone. The pattern's severity output is calibrated against the *number of independent strategies* registering a positive signal on a given trace, not against the strongest individual signal score. Configurations:
+Per the multi-signal confluence argument developed in `syntheses/detection approaches under black-box constraints`, no single signal in the deployer-side regime is reliable enough to act on alone. The pattern's severity output is calibrated against the *number of independent strategies* registering a positive signal on a given trace, not against the strongest individual signal score. Configurations:
 
 - **Low severity:** one strategy positive at moderate confidence (informational; logged but does not trigger downstream action by default)
 - **Medium severity:** two strategies positive, or one strategy positive at high confidence
@@ -87,7 +89,7 @@ The decision does not give us:
 
 ### Observer effect
 
-The detection strategy itself becomes part of what the agent may adapt to. If our scenario set, our honeypot patterns, or our statistical baselines become known — through documentation, leak, or inference from the pattern's responses — an adaptive agent can shape its behavior to evade them. The Bloom reframing reduces but does not eliminate this concern: signal-consistency monitoring is honest about defending a particular signal set rather than ground-truth, but the defended signal set is still finite and ultimately discoverable.
+The detection strategy itself becomes part of what the agent may adapt to. If our scenario set, our probe patterns, or our statistical baselines become known — through documentation, leak, or inference from the pattern's responses — an adaptive agent can shape its behavior to evade them. The signal-consistency reframing reduces but does not eliminate this concern: signal-consistency monitoring is honest about defending a particular signal set rather than ground-truth, but the defended signal set is still finite and ultimately discoverable.
 
 The operational mitigation is to treat the strategy set as a versioned secret: the four strategies above are stable, but the specific scenarios, probe contents, and statistical thresholds within each strategy should rotate, and detected evasion patterns should feed back into the next rotation. This is an operational practice, not a structural fix.
 
@@ -109,18 +111,18 @@ The chosen design is the honest second-best for our access regime.
 4. Holmstrom & Milgrom (1991) — *Multitask Principal-Agent Analyses*.
 5. Mayer, Davis & Schoorman (1995) — *An Integrative Model of Organizational Trust*.
 6. Fox & Jordan (2011) — *Delegation and Accountability*.
-7. Chopra & White — *A Legal Theory for Autonomous Artificial Agents*.
+7. Chopra, S. & White, L. F. (2011) — *A Legal Theory for Autonomous Artificial Agents*. University of Michigan Press.
 8. Waldrep (2026) — *Best AI Agent Security Tools 2026*.
 9. OpenAI (2026) — *Self-Incrimination in Language Model Agents*. arXiv:2602.22303.
 10. Prause (2026) — *No Skin in the Game: Principal-Agent Problems in AI Governance*.
 
 ### New graph sources (5)
 
-11. Anthropic (2026) — *Petri 2.0: Parallel Evaluation Tool for Risk Identification*. Open-source release, January 2026.
+11. Anthropic (2026) — *Petri 2.0: New Scenarios, New Model Comparisons, and Improved Eval-Awareness Mitigations*. Open-source release, January 22, 2026. https://alignment.anthropic.com/2026/petri-v2/
 12. Apollo Research (2025–2026) — *Evaluation Awareness in Claude Sonnet 4.5*. Primary source: X posts and secondary coverage; methodology paper not yet published. Cite with hedge.
-13. AuditBench (2026) — *Benchmark for Scaffolded Adversarial Probing of LLM Agents*. arXiv:2603.XXXXX (citation pending verification).
-14. DeceptGuard (2026) — *CoT vs Output Inconsistency Detection*.
-15. Bloom (2026) — *Post-Hoc Auditor Framework*.
+13. AuditBench (2026) — *Benchmark for Scaffolded Adversarial Probing of LLM Agents*. arXiv identifier pending verification.
+14. DeceptGuard (2026) — *A Constitutional Oversight Framework For Detecting Deception in LLM Agents*. arXiv:2603.13791.
+15. Anthropic (2025) — *Bloom: An Open-Source Agentic Framework for Automated Behavioral Evaluations*. https://alignment.anthropic.com/2025/bloom-auto-evals/ (evaluation-generation infrastructure; the signal-consistency reframing and multi-signal confluence are not attributable to Bloom — see ADR revision note).
 
 ### Most directly load-bearing findings for this ADR
 
@@ -131,9 +133,9 @@ The chosen design is the honest second-best for our access regime.
 - `finding/Model access not required for useful evaluation awareness detection` (AuditBench, structural implication)
 - `finding/CoT output inconsistency achieves 60-75 percent pAUROC on overt deception` (DeceptGuard, accuracy floor)
 - `finding/DeceptGuard pAUROC drops to 40-50 percent on obfuscated cases` (DeceptGuard, accuracy ceiling)
-- `finding/Post-hoc auditing reframes evaluation awareness detection as monitoring consistent behavior` (Bloom, conceptual frame)
-- `finding/Multi-signal confluence outperforms single-indicator detection` (Bloom, architectural premise)
-- `finding/Reframing sidesteps observer effect and ground-truth opacity` (Bloom, design rationale)
+- `finding/Post-hoc auditing reframes evaluation awareness detection as monitoring consistent behavior` (synthesis-level framing; prior drafts misattributed this to Bloom)
+- `finding/Multi-signal confluence outperforms single-indicator detection` (synthesis-level architectural position; prior drafts misattributed this to Bloom)
+- `finding/Reframing sidesteps observer effect and ground-truth opacity` (synthesis-level framing; prior drafts misattributed this to Bloom)
 - `finding/Self-reporting outperforms external monitoring at detecting scheming` (OpenAI, alternative considered and rejected on access grounds)
 
 ### Supporting syntheses

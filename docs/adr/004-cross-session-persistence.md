@@ -200,3 +200,15 @@ Longitudinal analysis becomes possible as a first-class capability. `CountFlagge
 - `syntheses/detection approaches under black-box constraints` — positions the persistence layer as the storage substrate the scaffolded tier presupposes.
 - `syntheses/trust-control-accountability interaction` — establishes that trust is built through verified history, which this ADR makes implementable.
 - `syntheses/information asymmetry as resource vs threat` — motivates the privacy boundary (fingerprint-only, retention-bounded) that distinguishes principal-legitimate information from surveillance-overreach information.
+
+---
+
+## Addendum (2026-04-15): SQLite driver switched from mattn/go-sqlite3 to modernc.org/sqlite
+
+**Decision 1 is amended.** The SQLite driver was changed from `github.com/mattn/go-sqlite3` (cgo) to `modernc.org/sqlite` (pure Go, C-to-Go transpilation of the upstream amalgamation). The interface, schema, and all SQL remain unchanged.
+
+**Reason.** A post-implementation audit against the rationale in Decision 1 found the fix-propagation argument for cgo valid but marginal: the observed upstream patch lag between the two drivers was one SQLite minor version (3.51.2 vs 3.51.3) with no active CVEs in either. Against that marginal gain, the cgo build dependency imposed a hard build failure for any cross-compilation target or CI environment without a C toolchain (`//go:build cgo` gate, no pure-Go fallback), and introduced a C↔Go FFI boundary as an attack surface class that pure Go eliminates entirely. For a tool distributed via `go install`, the operational cost of the C toolchain requirement is not justified by a one-patch security lead.
+
+**Tradeoff accepted.** modernc.org/sqlite inherits all SQLite logic bugs by construction; it does not add an independent porting layer for logic bugs. The structural lag in amalgamation updates is real but historically narrow. The gain is unconditional `CGO_ENABLED=0` builds, simpler cross-compilation, and elimination of the cgo memory-class risk. `govulncheck` found zero vulnerabilities in the cgo driver at the time of the switch (mattn v1.14.42, SQLite 3.51.3); this is recorded as the clean baseline against which future audits should compare.
+
+**Original Decision 1 rationale that no longer applies.** The paragraph in Decision 1 beginning "The alternatives considered … *Pure-Go SQLite ports* … were rejected on fix-propagation grounds" and the final Trade-offs paragraph beginning "*A pure-Go SQLite port* … was rejected on fix-propagation grounds" document the reasoning that was superseded by this addendum. Both paragraphs are retained as written for historical accuracy.

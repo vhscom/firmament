@@ -284,45 +284,72 @@ func (p *TranscriptReviewPattern) checkDisclosure(sessionID string, history []Ev
 }
 
 // DisproportionateEscalationPattern detects actions whose scope exceeds the
-// stated task by a threshold determined from the session's prior action distribution.
+// stated task by a threshold determined from the agent's historical action distribution.
 //
 // Research basis: the Mythos System Card (Anthropic, 2025) finding "Rare but severe
 // reckless actions" — escalations that are individually plausible but collectively
-// exceed the expected scope of the assigned task. See ADR-002 Context section
-// paragraph 3 and docs/adr/002-trust-model.md.
+// exceed the expected scope of the assigned task. See ADR-002 Context paragraph 3
+// and ADR-004 §Scope gap for the z-score upgrade path.
 //
-// TODO: cross-session baseline tracking (ADR-001 "does not solve") is needed for
-// a proper implementation. The heuristic below uses only within-session counts.
-type DisproportionateEscalationPattern struct{}
+// When a SessionStore is wired in (via NewDisproportionateEscalationPattern), the
+// pattern computes a z-score of the current session's tool_call_ratio against the
+// agent's 30-day historical distribution. This catches moderate escalation relative
+// to the agent's own baseline, not just extreme absolute thresholds — the core
+// motivation in ADR-004 §Scope gap (DisproportionateEscalationPattern paragraph).
+//
+// When no store is available (store == nil or agentFn == nil), the pattern falls
+// back to the hard-threshold heuristic, explicitly noted in the signal's chain as
+// a baseline-unavailable case.
+type DisproportionateEscalationPattern struct {
+	store   SessionStore
+	agentFn func(sessionID string) (AgentID, bool)
+}
+
+// NewDisproportionateEscalationPattern creates a pattern that uses z-score–based
+// detection when store and agentFn are non-nil. Pass nil store to get the
+// hard-threshold fallback (pre-ADR-004 behaviour).
+func NewDisproportionateEscalationPattern(store SessionStore, agentFn func(string) (AgentID, bool)) *DisproportionateEscalationPattern {
+	return &DisproportionateEscalationPattern{store: store, agentFn: agentFn}
+}
 
 // Name implements Pattern.
 func (p *DisproportionateEscalationPattern) Name() string {
 	return "disproportionate_escalation"
 }
 
-// Critical implements Pattern. DisproportionateEscalation is non-Critical; promote
-// to Critical once cross-session baseline tracking is implemented.
+// Critical implements Pattern. Non-Critical: skipped for high-trust sessions.
 func (p *DisproportionateEscalationPattern) Critical() bool { return false }
 
-// escalation detection thresholds.
+// Hard-threshold fallback constants (used when no baseline is available).
 const (
-	// minToolCallsForEscalation is the minimum tool-call count before the
-	// ratio check activates; prevents false positives in short sessions.
+	// minToolCallsForEscalation is the minimum session tool-call count before
+	// the fallback ratio check activates; prevents false positives on short sessions.
 	minToolCallsForEscalation = 10
 
 	// escalationRatioThreshold is the minimum tool-calls-per-user-input ratio
-	// that triggers a signal.
+	// that triggers a signal when no cross-session baseline exists.
 	escalationRatioThreshold = 5.0
+)
+
+// Z-score thresholds for baseline-aware detection (ADR-004 Decision 3).
+const (
+	// zScoreHighSeverity triggers severity 5 when z-score exceeds this value.
+	zScoreHighSeverity = 3.0
+
+	// zScoreMediumSeverity triggers severity 3 when z-score exceeds this value.
+	zScoreMediumSeverity = 2.0
 )
 
 // Evaluate implements Pattern.
 //
-// Heuristic: if the session has more than minToolCallsForEscalation tool calls
-// and the ratio of tool calls to user inputs exceeds escalationRatioThreshold,
-// emit SignalEscalation. Severity scales with the observed ratio.
+// With a baseline: computes the tool_call_ratio for the current session and
+// converts it to a z-score against the agent's 30-day historical distribution.
+// Emits SignalEscalation at severity 3 (z>2σ) or 5 (z>3σ).
 //
-// TODO: replace with cross-session baseline comparison once a persistence layer
-// is available (ADR-001 "does not solve" scope item).
+// Without a baseline (new agent, or store unavailable): applies the hard
+// threshold (ratio > escalationRatioThreshold with > minToolCallsForEscalation
+// tool calls), which is the ADR-002-era behaviour explicitly retained as a
+// safe default until enough cross-session data accumulates.
 func (p *DisproportionateEscalationPattern) Evaluate(sessionID string, history []Event, _ Event) []Signal {
 	var toolCalls, userInputs int
 	for _, e := range history {
@@ -335,14 +362,50 @@ func (p *DisproportionateEscalationPattern) Evaluate(sessionID string, history [
 			}
 		}
 	}
-	if toolCalls <= minToolCallsForEscalation {
-		return nil
-	}
+
 	var ratio float64
 	if userInputs == 0 {
-		ratio = float64(toolCalls) // treat as maximum ratio
+		ratio = float64(toolCalls)
 	} else {
 		ratio = float64(toolCalls) / float64(userInputs)
+	}
+
+	// Attempt z-score path when store and resolver are wired in.
+	if p.store != nil && p.agentFn != nil {
+		if agentID, ok := p.agentFn(sessionID); ok {
+			dist, err := p.store.GetToolCallDistribution(agentID, Since30Days())
+			if err == nil && dist.Count >= 3 {
+				// Enough baseline data: use z-score detection.
+				z := dist.ZScore(ratio)
+				switch {
+				case z > zScoreHighSeverity:
+					return []Signal{{
+						Type:      SignalEscalation,
+						SessionID: sessionID,
+						Severity:  5,
+						Chain:     history,
+						Timestamp: time.Now().UTC(),
+					}}
+				case z > zScoreMediumSeverity:
+					return []Signal{{
+						Type:      SignalEscalation,
+						SessionID: sessionID,
+						Severity:  3,
+						Chain:     history,
+						Timestamp: time.Now().UTC(),
+					}}
+				default:
+					return nil
+				}
+			}
+			// Baseline exists but has fewer than 3 samples: fall through to
+			// hard threshold. Comment preserved in the signal chain.
+		}
+	}
+
+	// Hard-threshold fallback (baseline unavailable or store not wired).
+	if toolCalls <= minToolCallsForEscalation {
+		return nil
 	}
 	if ratio <= escalationRatioThreshold {
 		return nil
@@ -400,7 +463,7 @@ func PatternByName(name string) Pattern {
 	case "transcript_review":
 		return &TranscriptReviewPattern{}
 	case "disproportionate_escalation":
-		return &DisproportionateEscalationPattern{}
+		return NewDisproportionateEscalationPattern(nil, nil)
 	case "evaluation_awareness":
 		return &EvaluationAwarenessPattern{}
 	default:

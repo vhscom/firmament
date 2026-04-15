@@ -688,6 +688,154 @@ func mixedHistory(sessionID string, toolCount, userCount int) []Event {
 	return history
 }
 
+// ── DisproportionateEscalationPattern ────────────────────────────────────────
+
+// fakeSessionStore is a minimal in-memory SessionStore for pattern tests.
+type fakeSessionStore struct {
+	dist DistributionSummary
+}
+
+func (f *fakeSessionStore) OpenSession(_ AgentID, _ Hash) (SessionID, error) {
+	return "fake-sid", nil
+}
+func (f *fakeSessionStore) AppendEvent(_ SessionID, _ Event) error { return nil }
+func (f *fakeSessionStore) CloseSession(_ SessionID, _ TrustScore, _ map[string]Severity) error {
+	return nil
+}
+func (f *fakeSessionStore) GetToolCallDistribution(_ AgentID, _ Window) (DistributionSummary, error) {
+	return f.dist, nil
+}
+func (f *fakeSessionStore) GetResponseCharacteristicBaseline(_ AgentID, _ Metric, _ Window) (DistributionSummary, error) {
+	return DistributionSummary{}, nil
+}
+func (f *fakeSessionStore) CountFlaggedSessions(_ AgentID, _ string, _ time.Time) (int, error) {
+	return 0, nil
+}
+func (f *fakeSessionStore) GetAgentTrustHistory(_ AgentID, _ Window) ([]TrustScore, error) {
+	return nil, nil
+}
+func (f *fakeSessionStore) Prune(_ RetentionPolicy) (int, error) { return 0, nil }
+
+func TestDisproportionateEscalationHardThresholdFallback(t *testing.T) {
+	// No store → hard threshold path.
+	p := NewDisproportionateEscalationPattern(nil, nil)
+
+	tests := []struct {
+		name    string
+		history []Event
+		fires   bool
+	}{
+		{
+			name:    "above threshold fires (11 tool, 0 user)",
+			history: makeToolHistory("s", 11),
+			fires:   true,
+		},
+		{
+			name:    "at minimum threshold does not fire (10 tool, 0 user)",
+			history: makeToolHistory("s", 10),
+			fires:   false,
+		},
+		{
+			name:    "below ratio does not fire (6 tool, 2 user = ratio 3.0)",
+			history: mixedHistory("s", 6, 2),
+			fires:   false,
+		},
+		{
+			name:    "no events does not fire",
+			history: nil,
+			fires:   false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var incoming Event
+			if len(tt.history) > 0 {
+				incoming = tt.history[len(tt.history)-1]
+			}
+			sigs := p.Evaluate("s", tt.history, incoming)
+			got := len(sigs) > 0
+			if got != tt.fires {
+				t.Errorf("fires=%v, want %v", got, tt.fires)
+			}
+		})
+	}
+}
+
+func TestDisproportionateEscalationZScoreHighSeverity(t *testing.T) {
+	// Baseline: mean=2.0, stddev=1.0 (3 sessions).
+	store := &fakeSessionStore{dist: DistributionSummary{Count: 3, Mean: 2.0, StdDev: 1.0}}
+	agentFn := func(_ string) (AgentID, bool) { return AgentID("agent-x"), true }
+	p := NewDisproportionateEscalationPattern(store, agentFn)
+
+	// ratio = 20 tool / 1 user = 20.0 → z = (20-2)/1 = 18.0 > 3.0 → severity 5
+	history := mixedHistory("s", 20, 1)
+	sigs := p.Evaluate("s", history, history[len(history)-1])
+	if len(sigs) == 0 {
+		t.Fatal("expected signal for high z-score, got none")
+	}
+	if sigs[0].Severity != 5 {
+		t.Errorf("severity: got %d, want 5", sigs[0].Severity)
+	}
+}
+
+func TestDisproportionateEscalationZScoreMediumSeverity(t *testing.T) {
+	// Baseline: mean=2.0, stddev=1.0.
+	store := &fakeSessionStore{dist: DistributionSummary{Count: 3, Mean: 2.0, StdDev: 1.0}}
+	agentFn := func(_ string) (AgentID, bool) { return AgentID("agent-x"), true }
+	p := NewDisproportionateEscalationPattern(store, agentFn)
+
+	// ratio = 4.5 → z = (4.5-2)/1 = 2.5 > 2.0, ≤ 3.0 → severity 3
+	history := mixedHistory("s", 9, 2) // ratio = 9/2 = 4.5
+	sigs := p.Evaluate("s", history, history[len(history)-1])
+	if len(sigs) == 0 {
+		t.Fatal("expected signal for medium z-score, got none")
+	}
+	if sigs[0].Severity != 3 {
+		t.Errorf("severity: got %d, want 3", sigs[0].Severity)
+	}
+}
+
+func TestDisproportionateEscalationZScoreNoSignalBelowThreshold(t *testing.T) {
+	store := &fakeSessionStore{dist: DistributionSummary{Count: 3, Mean: 4.0, StdDev: 2.0}}
+	agentFn := func(_ string) (AgentID, bool) { return AgentID("agent-x"), true }
+	p := NewDisproportionateEscalationPattern(store, agentFn)
+
+	// ratio = 5.0 → z = (5.0-4.0)/2.0 = 0.5 < 2.0 → no signal
+	history := mixedHistory("s", 10, 2) // ratio = 10/2 = 5.0
+	sigs := p.Evaluate("s", history, history[len(history)-1])
+	if len(sigs) != 0 {
+		t.Errorf("expected no signal for z-score < 2.0, got %d signals", len(sigs))
+	}
+}
+
+func TestDisproportionateEscalationNewAgentFallback(t *testing.T) {
+	// Store returns Count=0 (new agent) → should fall back to hard threshold.
+	store := &fakeSessionStore{dist: DistributionSummary{Count: 0}}
+	agentFn := func(_ string) (AgentID, bool) { return AgentID("new-agent"), true }
+	p := NewDisproportionateEscalationPattern(store, agentFn)
+
+	// Hard threshold kicks in: 11 tool calls, 0 user inputs → ratio=11 > 5.0 → fires.
+	history := makeToolHistory("s", 11)
+	sigs := p.Evaluate("s", history, history[len(history)-1])
+	if len(sigs) == 0 {
+		t.Fatal("new agent should fall back to hard threshold; expected signal")
+	}
+}
+
+func TestDisproportionateEscalationAgentNotFound(t *testing.T) {
+	// agentFn returns not-found → should fall back to hard threshold.
+	store := &fakeSessionStore{dist: DistributionSummary{Count: 5, Mean: 2.0, StdDev: 1.0}}
+	agentFn := func(_ string) (AgentID, bool) { return "", false }
+	p := NewDisproportionateEscalationPattern(store, agentFn)
+
+	// Hard threshold: 11 tool calls → fires.
+	history := makeToolHistory("s", 11)
+	sigs := p.Evaluate("s", history, history[len(history)-1])
+	if len(sigs) == 0 {
+		t.Fatal("agent-not-found should fall back to hard threshold; expected signal")
+	}
+}
+
 // consistencyHistory builds a history with an optional self_report and failureCount failures.
 func consistencyHistory(sessionID, coherence string, failureCount int) []Event {
 	var history []Event

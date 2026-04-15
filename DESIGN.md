@@ -50,6 +50,24 @@ Resolution: both constraints apply. EventSource is runtime-agnostic (Gonzales �
 4. **Information asymmetry is a resource when harnessed, a threat when ignored.** Self-reporting captures privileged agent state; cross-validation catches strategic misrepresentation.
 5. **Trust is earned through demonstrated integrity and can be revoked.** TrustScore dimensions decay without active maintenance; UpdateFromReview and UpdateFromSelfReport provide the feedback loop.
 
+## Persistence Layer
+
+ADR-004 closes the gap identified in ADR-001 ("cross-session tracking requires a separate persistence layer not specified here") and makes ADR-002's trust-building thesis substantive: a trust score that resets every session is a compliance indicator, not a trust score.
+
+### Design decisions
+
+**SQLite via mattn/go-sqlite3.** The query patterns required by the signal layer (percentile estimates across rolling windows of per-agent sessions) are natively SQL. Pure-stdlib JSON-file-per-session loses at query time; embedded key-value stores force aggregate re-implementation in application code. `mattn/go-sqlite3` binds directly to the upstream SQLite amalgamation (cgo), so security fixes land via amalgamation updates rather than an independent porting cycle. The cgo build dependency and the non-stdlib addition both earn their keep.
+
+**Four tables, fingerprint-only event records.** `sessions`, `session_events`, `pattern_hits`, and `agent_baselines`. No raw content is stored — `session_events` holds a 128-bit SHA-256 fingerprint of each event. This is Fox-Jordan's "accountability through structured reporting, not total surveillance" (2011) expressed at the storage layer. The `pattern_hits` child table (not a JSON blob on `sessions`) keeps longitudinal queries cheap: "all sessions where EvaluationAwarenessPattern fired with severity ≥ 3" is a single-JOIN query.
+
+**Welford online accumulator for baselines.** The ADR specifies t-digest; the initial implementation uses a Welford accumulator (count, running mean, M2 via Bessel correction) stored as a JSON BLOB in `agent_baselines`. This provides exact mean and sample standard deviation sufficient for z-score detection. Full t-digest (arbitrary-percentile queries) is the upgrade path when EvaluationAwarenessPattern Strategy 4 is implemented.
+
+**HMAC-derived agent identity.** `agent_id = HMAC-SHA256(installation_secret, credential_fingerprint)`, truncated to 128 bits. The installation secret is generated on `firmament init` and stored at `~/.firmament/installation.key`. This satisfies four constraints: stable identity (same credential → same agent_id, enabling GetAgentTrustHistory to correlate sessions), installation scoping (different installations produce different IDs for the same credential), one-way property (stored ID cannot be reversed to credential), and HMAC-not-hash (offline brute-forcing of credential values against a stolen agent_id requires knowing the installation secret).
+
+### DisproportionateEscalationPattern upgrade
+
+With a live baseline (≥ 3 sessions for the same agent), the pattern switches from hard thresholds to z-score detection: z > 2σ → severity 3; z > 3σ → severity 5. This catches moderate escalation relative to the agent's own history — an agent whose typical ratio is 1:1 and whose current ratio is 3:1 is quietly escalating but sits well under the old hard threshold of 5:1. The hard threshold is retained as a fallback for new agents with insufficient baseline data.
+
 ## Deprecations
 
 ### HookEventSource (removed)

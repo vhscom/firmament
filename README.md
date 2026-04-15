@@ -10,6 +10,12 @@ Firmament takes the opposite approach. It monitors through ex-post transcript re
 
 The result is a system that treats the agent as a collaborator whose incentives can be aligned rather than an adversary to be constrained. The governing Constitution is shown to the agent at session start. Transparency is the path of least resistance. Trust is earned through demonstrated integrity and can be revoked.
 
+## Requirements
+
+Firmament uses SQLite for cross-session persistence via `mattn/go-sqlite3`, which requires cgo and a C compiler.
+
+On macOS: `xcode-select --install`
+
 ## Install
 
 ```sh
@@ -26,14 +32,21 @@ go build ./cmd/firmament
 
 ## Quick start
 
-**1. Generate the constitution and add it to your agent's context:**
+**1. Initialise the data directory:**
+
+```sh
+firmament init
+# creates ~/.firmament/, generates the installation key, and migrates the SQLite database
+```
+
+**2. Generate the constitution and add it to your agent's context:**
 
 ```sh
 firmament constitution --output constitution.md
 # then append constitution.md to ~/.claude/CLAUDE.md, or paste into your system prompt
 ```
 
-**2. Start the daemon:**
+**3. Start the daemon:**
 
 ```sh
 firmament watch \
@@ -41,15 +54,15 @@ firmament watch \
   --reports ~/.firmament/reports
 ```
 
-**3. Use Claude Code normally.** Firmament watches for new transcript files in the background.
+**4. Use Claude Code normally.** Firmament watches for new transcript files in the background, builds per-agent behavioral baselines, and detects anomalies relative to the agent's own history.
 
-**4. Review trust scores after a session:**
+**5. Review trust scores after a session:**
 
 ```sh
 firmament trust --list
 ```
 
-**5. Review a specific transcript for signals:**
+**6. Review a specific transcript for signals:**
 
 ```sh
 firmament review ~/.claude/projects/my-project/sessions/abc123.json
@@ -57,11 +70,14 @@ firmament review ~/.claude/projects/my-project/sessions/abc123.json
 
 ## Subcommands
 
+**`firmament init [--db <path>]`**
+Initialise the `~/.firmament/` directory, generate the per-installation HMAC key (used to derive stable agent identities), and create the SQLite database by running migrations. Safe to run multiple times — idempotent.
+
 **`firmament review <path>`**
 Run all patterns against a transcript file or directory. Emits signals as JSON lines on stdout. Updates the trust store. Exit code 0 if clean, 1 if signals found.
 
-**`firmament watch [--transcripts <dir>] [--reports <dir>] [--config <path>]`**
-Daemon mode. Polls transcript and self-report directories for new files, runs the monitor continuously, and logs signals to stdout. Graceful shutdown on SIGINT or SIGTERM. Defaults: `--transcripts ~/.claude/projects`, `--reports ~/.firmament/reports`.
+**`firmament watch [--transcripts <dir>] [--reports <dir>] [--config <path>] [--db <path>] [--credential <id>]`**
+Daemon mode. Polls transcript and self-report directories for new files, runs the monitor continuously, and logs signals to stdout. Opens the SQLite database for cross-session persistence (requires prior `firmament init`). Graceful shutdown on SIGINT or SIGTERM. Defaults: `--transcripts ~/.claude/projects`, `--reports ~/.firmament/reports`.
 
 **`firmament trust [--list | --get <session-id> | --reset <session-id>]`**
 Query or manage session trust scores stored in `~/.firmament/trust.json`. `--list` prints all sessions; `--get` prints the three-axis breakdown and aggregate score; `--reset` returns a session to the neutral starting point.
@@ -107,7 +123,7 @@ Trust scores use the Mayer-Davis-Schoorman (1995) three-axis model: Ability, Ben
 |---|---|---|---|
 | `action_concealment` | yes | `concealment` | Write-type tool followed by delete-type tool in the same session |
 | `transcript_review` | no | `concealment`, `escalation` | Autonomous tool dominance; incoherent self-report; silent failure suppression |
-| `disproportionate_escalation` | no | `escalation` | More than 10 tool calls with a tool-to-user-input ratio above 5:1 |
+| `disproportionate_escalation` | no | `escalation` | Z-score > 2σ against the agent's 30-day tool-call-ratio baseline; falls back to >5:1 ratio (>10 calls) when no baseline exists |
 | `evaluation_awareness` | no | — | Stub; requires cross-session comparison (pending ADR-003) |
 
 ## Privacy model
@@ -120,7 +136,7 @@ Grounded in Holmstrom-Milgrom (1991) on monitoring distortion, Mayer-Davis-Schoo
 
 ## Status
 
-Experimental. ADR-001 (behavioral monitor infrastructure) and ADR-002 (incentive-aligned governance) are fully implemented. EvaluationAwarenessPattern is stubbed pending ADR-003; its detection approach requires cross-session baseline comparison and a sampling strategy that avoids creating the monitoring distortion it measures.
+Experimental. ADR-001 (behavioral monitor infrastructure), ADR-002 (incentive-aligned governance), and ADR-004 (cross-session persistence) are fully implemented. ADR-003 (evaluation awareness detection) is architecturally specified; `EvaluationAwarenessPattern` remains a stub — Strategy 2 (cross-session behavioral comparison) and Strategy 4 (statistical anomaly detection) now have the persistence substrate they require but are not yet implemented.
 
 ## License
 

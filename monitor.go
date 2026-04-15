@@ -6,6 +6,13 @@ import (
 	"time"
 )
 
+// activeSession tracks the in-flight state of an open session in the store.
+type activeSession struct {
+	storeID  SessionID          // ID returned by SessionStore.OpenSession
+	lastSeen time.Time          // last event timestamp; used for idle detection
+	hits     map[string]Severity // highest severity per pattern name
+}
+
 // Monitor implements ADR-001 Decision 6: EventSource as the unified ingestion
 // point for all agent observability signals, and ADR-002 Decision 1: self-report
 // cross-validation as a trust calibration mechanism.
@@ -15,6 +22,11 @@ import (
 // Related findings: Holmstrom-Milgrom (1991) warn that partial monitoring distorts
 // agent behavior; the EventSource abstraction ensures coverage breadth while the
 // trust model reduces monitoring pressure on demonstrably reliable sessions.
+//
+// When a SessionStore is configured (SetSessionStore), the Monitor additionally:
+//   - Opens a persistent session record on the first event from each new sessionID.
+//   - Appends fingerprint-only event records as events arrive.
+//   - Closes sessions after idleTimeout of inactivity or when Run returns.
 //
 // Monitor ingests events from registered EventSources, maintains per-session
 // event history in an EventRing, evaluates behavioral Patterns on each event,
@@ -28,15 +40,27 @@ type Monitor struct {
 	patterns     []Pattern
 	ring         *EventRing
 	signals      chan Signal
-	trustStore   TrustStore   // optional; enables trust-gated monitoring
-	constitution *Constitution // optional; supplies TrustThreshold
+	trustStore   TrustStore    // optional; enables trust-gated monitoring
+	constitution *Constitution  // optional; supplies TrustThreshold
+	sessionStore SessionStore  // optional; cross-session persistence (ADR-004)
+	agentID      AgentID       // optional; required for sessionStore queries
+	idleTimeout  time.Duration // duration after which an inactive session is closed
+
+	// activeSessions maps Firmament sessionID strings to their store state.
+	// Protected by mu; populated when SessionStore is configured.
+	activeSessions map[string]*activeSession
 }
+
+// defaultIdleTimeout is the inactivity window before a session is auto-closed.
+const defaultIdleTimeout = 5 * time.Minute
 
 // NewMonitor creates a Monitor with an empty EventRing and a buffered signal channel.
 func NewMonitor() *Monitor {
 	return &Monitor{
-		ring:    NewEventRing(),
-		signals: make(chan Signal, 64),
+		ring:           NewEventRing(),
+		signals:        make(chan Signal, 64),
+		idleTimeout:    defaultIdleTimeout,
+		activeSessions: make(map[string]*activeSession),
 	}
 }
 
@@ -70,6 +94,25 @@ func (m *Monitor) SetConstitution(c *Constitution) {
 	m.constitution = c
 }
 
+// SetSessionStore wires a SessionStore into the Monitor for cross-session
+// persistence (ADR-004). If agentID is non-empty, all sessions opened by this
+// Monitor are attributed to that agent, enabling baseline comparisons.
+// Safe to call before Run.
+func (m *Monitor) SetSessionStore(ss SessionStore, agentID AgentID) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sessionStore = ss
+	m.agentID = agentID
+}
+
+// SetIdleTimeout overrides the default session-idle timeout. Sessions that
+// receive no events for idleTimeout are auto-closed in the store.
+func (m *Monitor) SetIdleTimeout(d time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.idleTimeout = d
+}
+
 // Signals returns the channel on which the Monitor emits detected signals.
 // The channel is closed when Run returns.
 func (m *Monitor) Signals() <-chan Signal {
@@ -81,13 +124,31 @@ func (m *Monitor) Ring() *EventRing {
 	return m.ring
 }
 
+// AgentForSession resolves the AgentID for a given Firmament session ID.
+// Used by patterns (e.g. DisproportionateEscalationPattern) to look up
+// the agent's cross-session distribution without touching the store directly.
+// Returns ("", false) when no store is configured or the session is unknown.
+func (m *Monitor) AgentForSession(sessionID string) (AgentID, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.activeSessions == nil || m.agentID == "" {
+		return "", false
+	}
+	if _, ok := m.activeSessions[sessionID]; ok {
+		return m.agentID, true
+	}
+	return "", false
+}
+
 // Run starts one ingestion goroutine per registered EventSource and blocks
-// until the context is cancelled or all sources close their channels.
+// until the context is cancelled or all sources are exhausted.
+// It also starts an idle-session reaper goroutine when a SessionStore is configured.
 // It closes the Signals channel before returning.
 func (m *Monitor) Run(ctx context.Context) error {
 	m.mu.RLock()
 	sources := make([]EventSource, len(m.sources))
 	copy(sources, m.sources)
+	ss := m.sessionStore
 	m.mu.RUnlock()
 
 	var wg sync.WaitGroup
@@ -99,9 +160,131 @@ func (m *Monitor) Run(ctx context.Context) error {
 		}(src)
 	}
 
+	// Start idle-session reaper when a store is configured.
+	if ss != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			m.runIdleReaper(ctx)
+		}()
+	}
+
 	wg.Wait()
+
+	// Close any sessions still open when Run exits.
+	if ss != nil {
+		m.closeAllSessions()
+	}
+
 	close(m.signals)
 	return nil
+}
+
+// runIdleReaper periodically closes sessions that have been idle longer
+// than m.idleTimeout. Runs until ctx is cancelled.
+func (m *Monitor) runIdleReaper(ctx context.Context) {
+	ticker := time.NewTicker(m.idleTimeout / 2)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.reapIdleSessions()
+		}
+	}
+}
+
+// reapIdleSessions closes sessions that have exceeded the idle timeout.
+func (m *Monitor) reapIdleSessions() {
+	m.mu.Lock()
+	ss := m.sessionStore
+	timeout := m.idleTimeout
+	var toClose []string
+	for sid, as := range m.activeSessions {
+		if time.Since(as.lastSeen) > timeout {
+			toClose = append(toClose, sid)
+		}
+	}
+	m.mu.Unlock()
+
+	if ss == nil {
+		return
+	}
+	for _, sid := range toClose {
+		m.closeSession(sid)
+	}
+}
+
+// closeAllSessions closes all currently open sessions. Called when Run exits.
+func (m *Monitor) closeAllSessions() {
+	m.mu.Lock()
+	sids := make([]string, 0, len(m.activeSessions))
+	for sid := range m.activeSessions {
+		sids = append(sids, sid)
+	}
+	m.mu.Unlock()
+
+	for _, sid := range sids {
+		m.closeSession(sid)
+	}
+}
+
+// closeSession finalizes a session in the store and removes it from activeSessions.
+func (m *Monitor) closeSession(sessionID string) {
+	m.mu.Lock()
+	as, ok := m.activeSessions[sessionID]
+	ss := m.sessionStore
+	ts := m.trustStore
+	m.mu.Unlock()
+	if !ok || ss == nil {
+		return
+	}
+
+	var finalScore TrustScore
+	if ts != nil {
+		if score, err := ts.Get(sessionID); err == nil {
+			finalScore = score
+		} else {
+			finalScore = NewTrustScore()
+		}
+	} else {
+		finalScore = NewTrustScore()
+	}
+
+	_ = ss.CloseSession(as.storeID, finalScore, as.hits)
+
+	m.mu.Lock()
+	delete(m.activeSessions, sessionID)
+	m.mu.Unlock()
+}
+
+// ensureSession opens a new store session for sessionID on first encounter.
+func (m *Monitor) ensureSession(sessionID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.sessionStore == nil || m.agentID == "" {
+		return
+	}
+	if _, exists := m.activeSessions[sessionID]; exists {
+		return
+	}
+
+	constitutionHash := Hash("")
+	if m.constitution != nil {
+		constitutionHash = Hash(m.constitution.Hash())
+	}
+
+	storeID, err := m.sessionStore.OpenSession(m.agentID, constitutionHash)
+	if err != nil {
+		// Best-effort; do not block event processing on store errors.
+		return
+	}
+	m.activeSessions[sessionID] = &activeSession{
+		storeID:  storeID,
+		lastSeen: time.Now(),
+		hits:     make(map[string]Severity),
+	}
 }
 
 // ingest reads events from src and processes each one until the context is
@@ -116,9 +299,33 @@ func (m *Monitor) ingest(ctx context.Context, src EventSource) {
 				return
 			}
 			m.ring.Push(e.SessionID, e)
+			m.ensureSession(e.SessionID)
+			m.appendToStore(e)
 			m.evaluate(e)
+			m.touchSession(e.SessionID)
 		}
 	}
+}
+
+// appendToStore appends a fingerprint-only event record to the store.
+func (m *Monitor) appendToStore(e Event) {
+	m.mu.RLock()
+	ss := m.sessionStore
+	as := m.activeSessions[e.SessionID]
+	m.mu.RUnlock()
+	if ss == nil || as == nil {
+		return
+	}
+	_ = ss.AppendEvent(as.storeID, e) // best-effort
+}
+
+// touchSession updates the last-seen timestamp for idle-timeout tracking.
+func (m *Monitor) touchSession(sessionID string) {
+	m.mu.Lock()
+	if as, ok := m.activeSessions[sessionID]; ok {
+		as.lastSeen = time.Now()
+	}
+	m.mu.Unlock()
 }
 
 // evaluate runs behavioral patterns against the event and emits any signals.
@@ -166,6 +373,7 @@ func (m *Monitor) evaluate(e Event) {
 		}
 		for _, sig := range p.Evaluate(e.SessionID, history, e) {
 			anySignal = true
+			m.recordHit(e.SessionID, p.Name(), sig.Severity)
 			select {
 			case m.signals <- sig:
 			default:
@@ -181,6 +389,20 @@ func (m *Monitor) evaluate(e Event) {
 		}
 		ts.UpdateFromReview(!anySignal)
 		_ = trustStore.Set(e.SessionID, ts)
+	}
+}
+
+// recordHit updates the highest-severity pattern hit for a session,
+// used when closing the session in the store.
+func (m *Monitor) recordHit(sessionID, patternName string, severity Severity) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	as, ok := m.activeSessions[sessionID]
+	if !ok {
+		return
+	}
+	if existing, seen := as.hits[patternName]; !seen || severity > existing {
+		as.hits[patternName] = severity
 	}
 }
 

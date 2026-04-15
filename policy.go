@@ -1,6 +1,8 @@
 package firmament
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -72,6 +74,14 @@ func LoadConstitution(path string) (*Constitution, error) {
 		return nil, fmt.Errorf("parse constitution %q: %w", path, err)
 	}
 	return c, nil
+}
+
+// Hash returns a stable SHA-256 hex fingerprint of the Constitution's text
+// representation. Used by SessionStore.OpenSession to record which governance
+// context was active at session start (ADR-004 Decision 2, sessions.constitution_hash).
+func (c *Constitution) Hash() string {
+	h := sha256.Sum256([]byte(c.Text()))
+	return hex.EncodeToString(h[:])
 }
 
 // Text returns a human-readable summary of the constitution suitable for

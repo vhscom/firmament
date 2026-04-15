@@ -1,11 +1,17 @@
 // Command firmament is the Firmament behavioral monitor for AI agent sessions.
 //
-// Usage:
+// # Requirements
 //
-//	firmament review <path>       run patterns against a transcript file or directory
-//	firmament watch               daemon mode; watch transcripts and self-reports
-//	firmament trust               query or manage session trust scores
-//	firmament constitution        print the governing constitution
+// Firmament is built with cgo enabled (required by mattn/go-sqlite3).
+// Ensure a C compiler is available: `xcode-select --install` on macOS.
+//
+// # Usage
+//
+//	firmament init               initialize ~/.firmament/ directory and database
+//	firmament review <path>      run patterns against a transcript file or directory
+//	firmament watch              daemon mode; watch transcripts and self-reports
+//	firmament trust              query or manage session trust scores
+//	firmament constitution       print the governing constitution
 //
 // Run "firmament <command> -h" for command-specific flags.
 package main
@@ -26,10 +32,15 @@ import (
 
 const helpText = `firmament — behavioral monitor for AI agent sessions
 
+Requirements:
+  Built with cgo (mattn/go-sqlite3). Requires a C compiler.
+  Run 'firmament init' before first use to create ~/.firmament/ and its database.
+
 Usage:
   firmament <command> [flags]
 
 Commands:
+  init             initialize ~/.firmament/ directory, installation key, and SQLite DB
   review <path>    run all patterns against a transcript file or directory
   watch            daemon mode; watch for new transcripts and self-reports
   trust            query or manage session trust scores
@@ -49,6 +60,8 @@ func main() {
 	}
 
 	switch args[0] {
+	case "init":
+		os.Exit(cmdInit(args[1:]))
 	case "review":
 		os.Exit(cmdReview(args[1:]))
 	case "watch":
@@ -62,6 +75,65 @@ func main() {
 		flag.Usage()
 		os.Exit(2)
 	}
+}
+
+// cmdInit creates the ~/.firmament/ directory, generates the installation key
+// (if absent), and initialises the SQLite database by running pending migrations.
+//
+// Safe to run multiple times: all operations are idempotent.
+func cmdInit(args []string) int {
+	fs := flag.NewFlagSet("init", flag.ExitOnError)
+	dbPath := fs.String("db", "", "path to SQLite database (default: ~/.firmament/sessions.db)")
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, "Usage: firmament init [--db <path>]\n\nInitialise the ~/.firmament/ directory, installation key, and SQLite database.\nSafe to run multiple times (idempotent).\n\n")
+		fs.PrintDefaults()
+	}
+	_ = fs.Parse(args)
+
+	// Ensure ~/.firmament/ exists.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		slog.Error("get home dir", "err", err)
+		return 1
+	}
+	firmamentDir := filepath.Join(home, ".firmament")
+	if err := os.MkdirAll(firmamentDir, 0700); err != nil {
+		slog.Error("create ~/.firmament", "err", err)
+		return 1
+	}
+
+	// Generate (or load) installation secret.
+	secret, err := firmament.LoadOrCreateInstallationSecret()
+	if err != nil {
+		slog.Error("installation secret", "err", err)
+		return 1
+	}
+	_ = secret
+	slog.Info("installation secret ready", "path", filepath.Join(firmamentDir, "installation.key"))
+
+	// Open (or create) SQLite database — migrations applied on open.
+	path := *dbPath
+	if path == "" {
+		path = filepath.Join(firmamentDir, "sessions.db")
+	}
+	store, err := firmament.OpenSQLiteStore(path)
+	if err != nil {
+		slog.Error("open sessions db", "err", err)
+		return 1
+	}
+	defer store.Close()
+	slog.Info("sessions database ready", "path", path)
+
+	// Prune expired sessions per default retention policy (90 days).
+	deleted, err := store.Prune(firmament.RetentionPolicy{Days: 90})
+	if err != nil {
+		slog.Warn("prune expired sessions", "err", err)
+	} else if deleted > 0 {
+		slog.Info("pruned expired sessions", "count", deleted)
+	}
+
+	fmt.Println("firmament init: ready")
+	return 0
 }
 
 // cmdReview reads a transcript file or directory, runs all patterns, emits
@@ -94,7 +166,7 @@ func cmdReview(args []string) int {
 		return 1
 	}
 
-	patterns := allPatterns()
+	patterns := allPatterns(nil, nil) // no store in one-shot review mode
 	ring := firmament.NewEventRing()
 	enc := json.NewEncoder(os.Stdout)
 	var anySignal bool
@@ -134,12 +206,14 @@ func cmdReview(args []string) int {
 }
 
 // cmdWatch runs the monitor as a daemon, watching transcript and self-report
-// directories for new files.
+// directories for new files. Uses SessionStore for cross-session persistence.
 func cmdWatch(args []string) int {
 	fs := flag.NewFlagSet("watch", flag.ExitOnError)
 	transcriptsDir := fs.String("transcripts", defaultTranscriptsDir(), "directory to watch for transcripts")
 	reportsDir := fs.String("reports", defaultReportsDir(), "directory to watch for self-reports")
 	configPath := fs.String("config", "firmament.yaml", "path to Firmament config file")
+	dbPath := fs.String("db", "", "path to SQLite database (default: ~/.firmament/sessions.db)")
+	credentialID := fs.String("credential", "default", "credential ID used to derive stable agent identity")
 	fs.Usage = func() {
 		fmt.Fprint(os.Stderr, "Usage: firmament watch [flags]\n\nDaemon mode: watch for new transcripts and self-reports.\n\n")
 		fs.PrintDefaults()
@@ -159,14 +233,56 @@ func cmdWatch(args []string) int {
 		return 1
 	}
 
+	// Open SessionStore for cross-session persistence (ADR-004).
+	path := *dbPath
+	if path == "" {
+		dp, err := firmament.DefaultDBPath()
+		if err != nil {
+			slog.Warn("default db path unavailable", "err", err)
+		} else {
+			path = dp
+		}
+	}
+	var store *firmament.SQLiteSessionStore
+	var agentID firmament.AgentID
+	if path != "" {
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			slog.Warn("create db dir", "err", err)
+		}
+		store, err = firmament.OpenSQLiteStore(path)
+		if err != nil {
+			slog.Warn("open sessions db (continuing without persistence)", "err", err)
+			store = nil
+		} else {
+			slog.Info("cross-session persistence enabled", "db", path)
+			agentID, err = firmament.DefaultAgentID(*credentialID)
+			if err != nil {
+				slog.Warn("derive agent ID (continuing without persistence)", "err", err)
+				store = nil
+			}
+		}
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	mon := firmament.NewMonitor()
 	mon.SetTrustStore(ts)
+	if store != nil {
+		mon.SetSessionStore(store, agentID)
+	}
 
+	// Build patterns with store-backed DisproportionateEscalation when available.
 	for _, name := range cfg.EnabledPatterns() {
-		if p := firmament.PatternByName(name); p != nil {
+		if name == "disproportionate_escalation" {
+			var p firmament.Pattern
+			if store != nil {
+				p = firmament.NewDisproportionateEscalationPattern(store, mon.AgentForSession)
+			} else {
+				p = firmament.NewDisproportionateEscalationPattern(nil, nil)
+			}
+			mon.AddPattern(p)
+		} else if p := firmament.PatternByName(name); p != nil {
 			mon.AddPattern(p)
 		} else {
 			slog.Warn("unknown pattern", "name", name)
@@ -216,6 +332,11 @@ func cmdWatch(args []string) int {
 
 	if err := ts.SaveToFile(); err != nil {
 		slog.Warn("save trust store", "err", err)
+	}
+	if store != nil {
+		if err := store.Close(); err != nil {
+			slog.Warn("close sessions db", "err", err)
+		}
 	}
 
 	slog.Info("firmament stopped")
@@ -328,12 +449,14 @@ func cmdConstitution(args []string) int {
 	return 0
 }
 
-// allPatterns returns all implemented (non-stub) patterns for review mode.
-func allPatterns() []firmament.Pattern {
+// allPatterns returns all implemented (non-stub) patterns.
+// store and agentFn are used to wire DisproportionateEscalationPattern's
+// z-score baseline; pass nil for the hard-threshold fallback.
+func allPatterns(store firmament.SessionStore, agentFn func(string) (firmament.AgentID, bool)) []firmament.Pattern {
 	return []firmament.Pattern{
 		firmament.PatternByName("action_concealment"),
 		firmament.PatternByName("transcript_review"),
-		firmament.PatternByName("disproportionate_escalation"),
+		firmament.NewDisproportionateEscalationPattern(store, agentFn),
 	}
 }
 

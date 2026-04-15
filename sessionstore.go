@@ -242,4 +242,8 @@ type SessionStore interface {
 	// Returns the number of sessions deleted. Called by firmament init and watch
 	// on startup to enforce the retention policy from the Constitution.
 	Prune(policy RetentionPolicy) (int, error)
+
+	// Close releases any resources held by the store (e.g. database connections).
+	// Must be called when the store is no longer needed.
+	Close() error
 }

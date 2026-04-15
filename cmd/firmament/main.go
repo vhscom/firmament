@@ -234,22 +234,23 @@ func cmdWatch(args []string) int {
 			path = dp
 		}
 	}
-	var store *firmament.SQLiteSessionStore
+	var store firmament.SessionStore
 	var agentID firmament.AgentID
 	if path != "" {
 		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 			slog.Warn("create db dir", "err", err)
 		}
-		store, err = firmament.OpenSQLiteStore(path)
-		if err != nil {
-			slog.Warn("open sessions db (continuing without persistence)", "err", err)
-			store = nil
+		s, openErr := firmament.OpenSQLiteStore(path)
+		if openErr != nil {
+			slog.Warn("open sessions db (continuing without persistence)", "err", openErr)
 		} else {
 			slog.Info("cross-session persistence enabled", "db", path)
 			agentID, err = firmament.DefaultAgentID(*credentialID)
 			if err != nil {
 				slog.Warn("derive agent ID (continuing without persistence)", "err", err)
-				store = nil
+				_ = s.Close()
+			} else {
+				store = s
 			}
 		}
 	}

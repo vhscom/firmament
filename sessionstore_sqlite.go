@@ -24,7 +24,9 @@ var migrationsFS embed.FS
 // It satisfies ADR-004 Decision 1 (SQLite via modernc.org/sqlite) and Decision 2
 // (four-table schema with fingerprint-only event records).
 //
-// Safe for concurrent use. All writes are serialized through database/sql.
+// Safe for concurrent use. WAL journal mode allows concurrent readers; the
+// embedded sync.Mutex guards the in-memory seqNums/sessionAgents maps; and
+// multi-step writes use explicit database transactions for atomicity.
 //
 // Pure-Go driver: modernc.org/sqlite is a C-to-Go transpilation of the upstream
 // SQLite amalgamation — no cgo required. See ADR-004 addendum (2026-04-15).

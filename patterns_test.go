@@ -715,6 +715,7 @@ func (f *fakeSessionStore) GetAgentTrustHistory(_ AgentID, _ Window) ([]TrustSco
 	return nil, nil
 }
 func (f *fakeSessionStore) Prune(_ RetentionPolicy) (int, error) { return 0, nil }
+func (f *fakeSessionStore) Close() error                         { return nil }
 
 func TestDisproportionateEscalationHardThresholdFallback(t *testing.T) {
 	// No store → hard threshold path.

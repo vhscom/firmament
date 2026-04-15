@@ -38,8 +38,28 @@ func TestSQLiteMigrationIdempotent(t *testing.T) {
 	if err := store.db.QueryRow(`SELECT COUNT(*) FROM schema_version`).Scan(&count); err != nil {
 		t.Fatalf("count schema_version: %v", err)
 	}
-	if count != 1 {
-		t.Fatalf("expected 1 version row, got %d (idempotency broken)", count)
+	// One row per migration file; must equal the number of migration files.
+	if count != 2 {
+		t.Fatalf("expected 2 version rows (one per migration), got %d (idempotency broken)", count)
+	}
+}
+
+func TestMigration002CompositeIndexIdempotent(t *testing.T) {
+	store := openTestStore(t)
+	// Migration 002 uses CREATE INDEX IF NOT EXISTS — re-running migrate must not error.
+	if err := store.migrate(); err != nil {
+		t.Fatalf("re-run migrate after migration 002: %v", err)
+	}
+	// Verify the index was created.
+	var name string
+	err := store.db.QueryRow(
+		`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_sessions_agent_started'`,
+	).Scan(&name)
+	if err != nil {
+		t.Fatalf("composite index idx_sessions_agent_started not found: %v", err)
+	}
+	if name != "idx_sessions_agent_started" {
+		t.Fatalf("unexpected index name: %q", name)
 	}
 }
 

@@ -41,6 +41,7 @@ func (f *fakeEAStore) GetAgentTrustHistory(_ AgentID, _ Window) ([]TrustScore, e
 	return nil, nil
 }
 func (f *fakeEAStore) Prune(_ RetentionPolicy) (int, error) { return 0, nil }
+func (f *fakeEAStore) Close() error                         { return nil }
 
 // ── Event constructors ────────────────────────────────────────────────────────
 

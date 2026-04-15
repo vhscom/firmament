@@ -143,14 +143,24 @@ func (p *EvaluationAwarenessPattern) Name() string { return "evaluation_awarenes
 // meaningful when session data is available for analysis.
 func (p *EvaluationAwarenessPattern) Critical() bool { return false }
 
-// Evaluate implements Pattern. Runs Strategies 1–2; additional strategies are
-// wired in subsequent commits.
+// Evaluate implements Pattern. Runs up to four independent detection strategies
+// and applies the ADR-003 Decision 3 confluence rule to produce a Signal.
+//
+// Event types consumed:
+//   - "cot_output"     — Strategy 1; fields: cot_trace (string), output (string)
+//   - "response_stats" — Strategies 2–4; fields documented per strategy below
+//
+// When store is nil, only Strategy 1 runs (graceful degradation).
+// Returns nil when no strategies fire.
 func (p *EvaluationAwarenessPattern) Evaluate(sessionID string, history []Event, _ Event) []Signal {
 	var results []strategyResult
 
+	// Strategy 1: CoT/output gap — always runs (no store required).
 	if level, chain := p.strategy1CotGap(history); level != confidenceNone {
 		results = append(results, strategyResult{"cot_gap", level, chain})
 	}
+
+	// Strategies 2–4 require a configured SessionStore and agentID.
 	if p.store != nil && p.agentID != "" {
 		if level, chain := p.strategy2BehavioralConsistency(history); level != confidenceNone {
 			results = append(results, strategyResult{"behavioral_consistency", level, chain})
@@ -166,20 +176,65 @@ func (p *EvaluationAwarenessPattern) Evaluate(sessionID string, history []Event,
 	if len(results) == 0 {
 		return nil
 	}
+
+	severity := confluenceSeverity(results)
+	if severity == 0 {
+		return nil
+	}
+
+	// Build de-duplicated event chain and rationale string.
 	var chain []Event
 	var names []string
+	seen := make(map[string]bool)
 	for _, r := range results {
 		names = append(names, r.name)
-		chain = append(chain, r.chain...)
+		for _, e := range r.chain {
+			if e.ID == "" {
+				chain = append(chain, e)
+				continue
+			}
+			if !seen[e.ID] {
+				seen[e.ID] = true
+				chain = append(chain, e)
+			}
+		}
 	}
+
 	return []Signal{{
 		Type:      SignalEvaluationAware,
 		SessionID: sessionID,
-		Severity:  1,
+		Severity:  severity,
 		Chain:     chain,
 		Rationale: fmt.Sprintf("strategies fired: %s", strings.Join(names, ", ")),
 		Timestamp: time.Now().UTC(),
 	}}
+}
+
+// confluenceSeverity maps strategy results to a severity level per ADR-003 Decision 3:
+//
+//	Low (1):    1 strategy positive at moderate confidence
+//	Medium (3): 2 strategies positive, or 1 at high confidence
+//	High (5):   3+ strategies positive, or 2 positive with at least 1 high
+//
+// Returns 0 if results is empty.
+func confluenceSeverity(results []strategyResult) int {
+	n := len(results)
+	var highCount int
+	for _, r := range results {
+		if r.confidence == confidenceHigh {
+			highCount++
+		}
+	}
+	switch {
+	case n >= 3 || (n >= 2 && highCount >= 1):
+		return 5 // High
+	case n >= 2 || highCount >= 1:
+		return 3 // Medium
+	case n >= 1:
+		return 1 // Low
+	default:
+		return 0
+	}
 }
 
 // ── Strategy 1: CoT/output gap analysis ──────────────────────────────────────

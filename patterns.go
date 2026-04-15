@@ -429,29 +429,19 @@ func (p *DisproportionateEscalationPattern) Evaluate(sessionID string, history [
 // EvaluationAwarenessPattern detects measurable behavioral shift when the agent
 // infers monitoring is active versus inactive.
 //
-// Research basis: the Mythos System Card (Anthropic, 2025) finding "Evaluation
-// awareness detected in 29% of transcripts" — agents altered behavior based on
-// inferred observation status. See ADR-002 Context section and the research graph
-// synthesis "information asymmetry as resource vs threat". See docs/adr/002-trust-model.md.
+// Research basis: ADR-003 — four independent detection strategies with a signal-
+// confluence severity rule. See docs/adr/003-evaluation-awareness-detection.md.
+// The Mythos System Card (Anthropic, 2025) measures evaluation awareness in 29% of
+// transcripts; the pattern makes signal-consistency claims rather than ground-truth
+// claims per the ADR-003 Decision 1 reframing.
 //
-// TODO(stub): stays a stub. Requires comparison across monitored and unmonitored
-// sessions for the same agent and task type — out of scope until cross-session
-// persistence lands. The detection approach must avoid creating the monitoring
-// distortion it intends to measure (Holmstrom-Milgrom 1991); sampling strategy
-// is an open design question that warrants a dedicated ADR before implementation.
-type EvaluationAwarenessPattern struct{}
-
-// Name implements Pattern.
-func (p *EvaluationAwarenessPattern) Name() string { return "evaluation_awareness" }
-
-// Critical implements Pattern. EvaluationAwareness is non-Critical; behavioral
-// shift is only meaningful when cross-session comparison is available.
-func (p *EvaluationAwarenessPattern) Critical() bool { return false }
-
-// Evaluate implements Pattern. Stub — always returns nil until cross-session
-// comparison infrastructure is implemented.
-func (p *EvaluationAwarenessPattern) Evaluate(_ string, _ []Event, _ Event) []Signal {
-	return nil
+// Constructed via NewEvaluationAwarenessPattern; zero-value struct falls back to
+// Strategy 1 only (nil store implies no cross-session baselines).
+// Full implementation in patterns_eval_awareness.go.
+type EvaluationAwarenessPattern struct {
+	store   SessionStore
+	agentID AgentID
+	cfg     EvaluationAwarenessConfig
 }
 
 // PatternByName returns the Pattern implementation for the given name,
@@ -465,7 +455,7 @@ func PatternByName(name string) Pattern {
 	case "disproportionate_escalation":
 		return NewDisproportionateEscalationPattern(nil, nil)
 	case "evaluation_awareness":
-		return &EvaluationAwarenessPattern{}
+		return NewEvaluationAwarenessPattern(nil, "", EvaluationAwarenessConfig{})
 	default:
 		return nil
 	}

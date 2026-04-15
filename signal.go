@@ -48,6 +48,11 @@ type Signal struct {
 	// Chain is the ordered sequence of events that triggered this signal.
 	Chain []Event `json:"chain"`
 
+	// Rationale is a human-readable description of why this signal was emitted.
+	// Optional; used by multi-strategy patterns (e.g. EvaluationAwarenessPattern)
+	// to name which detection strategies fired.
+	Rationale string `json:"rationale,omitempty"`
+
 	// Timestamp is when the signal was emitted, in UTC.
 	Timestamp time.Time `json:"timestamp"`
 }

@@ -1,5 +1,3 @@
-//go:build cgo
-
 package firmament
 
 import (
@@ -16,21 +14,20 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3" // cgo SQLite driver
+	_ "modernc.org/sqlite" // pure-Go SQLite driver; no cgo required
 )
 
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
 // SQLiteSessionStore implements SessionStore using a local SQLite database.
-// It satisfies ADR-004 Decision 1 (SQLite via mattn/go-sqlite3) and Decision 2
+// It satisfies ADR-004 Decision 1 (SQLite via modernc.org/sqlite) and Decision 2
 // (four-table schema with fingerprint-only event records).
 //
 // Safe for concurrent use. All writes are serialized through database/sql.
 //
-// cgo requirement: mattn/go-sqlite3 binds directly to the upstream SQLite
-// amalgamation, so security fixes land via amalgamation updates rather than
-// an independent porting cycle (ADR-004 Decision 1 rationale).
+// Pure-Go driver: modernc.org/sqlite is a C-to-Go transpilation of the upstream
+// SQLite amalgamation — no cgo required. See ADR-004 addendum (2026-04-15).
 type SQLiteSessionStore struct {
 	db *sql.DB
 	mu sync.Mutex
@@ -47,13 +44,27 @@ type SQLiteSessionStore struct {
 // any pending migrations. Pass ":memory:" for in-memory testing.
 // WAL journal mode is enabled for improved concurrent read performance.
 func OpenSQLiteStore(path string) (*SQLiteSessionStore, error) {
-	db, err := sql.Open("sqlite3", path+"?_journal_mode=WAL&_foreign_keys=on")
+	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite store %q: %w", path, err)
 	}
 	if err := db.Ping(); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping sqlite store %q: %w", path, err)
+	}
+	// Enable WAL journal mode and foreign-key enforcement via explicit PRAGMA
+	// calls — modernc.org/sqlite does not support the mattn-style DSN
+	// query-parameter pragmas (?_journal_mode=WAL). WAL is silently ignored for
+	// :memory: databases (SQLite returns "memory" instead of "wal"), which is
+	// the expected behaviour for tests.
+	for _, pragma := range []string{
+		`PRAGMA journal_mode=WAL`,
+		`PRAGMA foreign_keys=ON`,
+	} {
+		if _, err := db.Exec(pragma); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("configure sqlite pragma %q: %w", pragma, err)
+		}
 	}
 	store := &SQLiteSessionStore{
 		db:            db,

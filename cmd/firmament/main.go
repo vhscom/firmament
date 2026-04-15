@@ -1,10 +1,5 @@
 // Command firmament is the Firmament behavioral monitor for AI agent sessions.
 //
-// # Requirements
-//
-// Firmament is built with cgo enabled (required by mattn/go-sqlite3).
-// Ensure a C compiler is available: `xcode-select --install` on macOS.
-//
 // # Usage
 //
 //	firmament init               initialize ~/.firmament/ directory and database
@@ -31,10 +26,6 @@ import (
 )
 
 const helpText = `firmament — behavioral monitor for AI agent sessions
-
-Requirements:
-  Built with cgo (mattn/go-sqlite3). Requires a C compiler.
-  Run 'firmament init' before first use to create ~/.firmament/ and its database.
 
 Usage:
   firmament <command> [flags]

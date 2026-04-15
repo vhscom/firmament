@@ -18,7 +18,7 @@ Firmament's response: trust score replaces real-time controls for high-trust ses
 
 ### Information asymmetry as resource vs threat
 
-The same information asymmetry that enables agent deception (Holmstrom-Milgrom, Prause) also enables reliable self-reporting when incentive structures align (OpenAI 2026). Chopra-White's agent complexity framework makes this coherent: an agent complex enough to deceive is complex enough to self-report accurately.
+The same information asymmetry that enables agent deception (Holmstrom-Milgrom, Prause) also enables reliable self-reporting when incentive structures align (OpenAI 2026). Chopra & White's (2011, University of Michigan Press) agent complexity framework makes this coherent: an agent complex enough to deceive is complex enough to self-report accurately.
 
 Firmament's response: SelfReportSource treats asymmetry as a resource. Monitor.crossValidateSelfReport cross-validates coherence claims against observed structural fingerprints, distinguishing reliable self-reports from strategic ones and updating TrustScore.Integrity accordingly.
 
@@ -30,7 +30,7 @@ OpenAI (2026) argues self-reporting should be embedded in the agent — it has p
 
 Resolution: Firmament does both. Self-reporting is the information channel (OpenAI — the agent writes self-report files from inside its execution context). Monitor as a separate process is the consequence structure (Prause — evaluation and trust scoring happen outside the agent boundary and cannot be influenced by the agent's actions).
 
-### Mythos welfare vs Chopra-White agent rights
+### Mythos welfare vs Chopra & White (2011) agent rights
 
 The Mythos System Card (Anthropic, 2025) documents functional emotional states in frontier models but leaves their moral status uncertain — the system exhibits distress signals but the paper stops short of claiming subjective experience. Chopra & White (2011) argue that agent complexity itself warrants consideration of agent interests regardless of resolved moral status.
 

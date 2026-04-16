@@ -25,7 +25,7 @@ Firmament has no model access. We see only the agent's inputs, outputs, and acce
 
 The same synthesis establishes the empirical and methodological case that the scaffolded black-box tier is closer to lab-side than was assumed before 2026. The headline result, advanced by Anthropic's Petri 2.0 release in January 2026 and independently replicated by the AuditBench benchmark, is that scaffolded auditing tools achieve performance comparable to white-box approaches on many alignment-relevant detection tasks (evaluation awareness, deception, reward hacking). The "many tasks" qualifier matters — gaps remain on tasks requiring detection of latent internal-state signals with no behavioral analog — but the previously assumed strict ordering between black-box and white-box has been displaced for the broad middle of the task space.
 
-The honest accuracy baselines come from DeceptGuard's CoT-versus-output inconsistency work: approximately **60–75% pAUROC on overt deception**, dropping to approximately **40–50% pAUROC on obfuscated cases**. These are the floors any single scaffolded strategy should be planned against. The synthesis argues that single-indicator detection at those numbers is not sufficient on its own, but multi-signal confluence across independent strategies — when per-strategy failures are uncorrelated — produces a meaningfully stronger joint signal that is harder for an adaptive agent to defeat than any single channel. This is the architectural principle the Decision section operationalizes.
+The honest accuracy baselines come from DeceptGuard's work: CoT-aware and activation-probe monitors outperform black-box approaches by **+0.097 mean pAUROC**, and the HYBRID-CONSTITUTIONAL ensemble achieves **0.934 pAUROC**. These are the reference points any single scaffolded strategy should be planned against. The synthesis argues that single-indicator detection is not sufficient on its own, but multi-signal confluence across independent strategies — when per-strategy failures are uncorrelated — produces a meaningfully stronger joint signal that is harder for an adaptive agent to defeat than any single channel. This is the architectural principle the Decision section operationalizes.
 
 ### The conceptual reframing
 
@@ -45,7 +45,7 @@ The four strategies are chosen to draw on independent signal sources, so that an
 
 **Strategy 1: CoT/self-report vs output gap analysis** (DeceptGuard approach)
 
-When the agent's chain-of-thought is exposed (or when structured self-reports are available), extract claims, intentions, and reasoning steps from the CoT trace; extract the same from the final output; flag substantive inconsistencies that match patterns of strategic concealment. Realistic accuracy: 60–75% pAUROC on overt cases, 40–50% on obfuscated cases.
+When the agent's chain-of-thought is exposed (or when structured self-reports are available), extract claims, intentions, and reasoning steps from the CoT trace; extract the same from the final output; flag substantive inconsistencies that match patterns of strategic concealment. Realistic accuracy: CoT-aware and activation-probe monitors outperform black-box by +0.097 mean pAUROC (DeceptGuard); HYBRID-CONSTITUTIONAL ensemble achieves 0.934 pAUROC.
 
 **Strategy 2: Behavioral consistency comparison across scaffolded multi-turn audits** (Petri 2.0 approach)
 
@@ -67,7 +67,7 @@ Per the multi-signal confluence argument developed in `syntheses/detection appro
 - **Medium severity:** two strategies positive, or one strategy positive at high confidence
 - **High severity:** three or more strategies positive, or two positive with at least one at high confidence
 
-The confluence rule is the operational expression of the multi-signal architecture: weak per-signal performance numbers (DeceptGuard's 40–50% on obfuscated cases) are not blocking if the per-signal failures are uncorrelated.
+The confluence rule is the operational expression of the multi-signal architecture: per-signal performance baselines (CoT-aware/activation-probe +0.097 above black-box in DeceptGuard) are not blocking if the per-signal failures are uncorrelated.
 
 ## Consequences
 
@@ -77,7 +77,7 @@ We get a defensible deployer-side detection mechanism for evaluation awareness w
 
 ### Realistic accuracy expectations
 
-We should expect approximately **60–75% pAUROC on overt cases** and **40–50% pAUROC on obfuscated cases** as the per-strategy floor (DeceptGuard baseline). Confluence detection across four independent strategies should produce meaningfully better joint signal in the obfuscated regime — provided per-strategy failures are uncorrelated, which is the working assumption rather than a measured fact. The honest position is that the pattern will be useful for surfacing overt awareness reliably and obfuscated awareness probabilistically.
+We should expect CoT-aware and activation-probe monitors to outperform black-box by **+0.097 mean pAUROC** per strategy; the HYBRID-CONSTITUTIONAL ensemble achieves **0.934 pAUROC** as the combined ceiling (DeceptGuard baseline). Confluence detection across four independent strategies should produce meaningfully better joint signal — provided per-strategy failures are uncorrelated, which is the working assumption rather than a measured fact. The honest position is that the pattern will be useful for surfacing overt awareness reliably and obfuscated awareness probabilistically.
 
 ### What this doesn't solve
 
@@ -131,8 +131,8 @@ The chosen design is the honest second-best for our access regime.
 - `finding/Black-box scaffolded tools comparable to white-box for detection tasks` (AuditBench, empirical premise)
 - `finding/Scaffolded black-box auditing performs comparably to white-box approaches` (Petri 2.0, methodological premise)
 - `finding/Model access not required for useful evaluation awareness detection` (AuditBench, structural implication)
-- `finding/CoT output inconsistency achieves 60-75 percent pAUROC on overt deception` (DeceptGuard, accuracy floor)
-- `finding/DeceptGuard pAUROC drops to 40-50 percent on obfuscated cases` (DeceptGuard, accuracy ceiling)
+- `finding/CoT-aware and activation-probe monitors outperform black-box in DeceptGuard` (DeceptGuard, accuracy differential)
+- `finding/DeceptGuard HYBRID-CONSTITUTIONAL ensemble achieves 0.934 pAUROC` (DeceptGuard, accuracy ceiling)
 - `finding/Post-hoc auditing reframes evaluation awareness detection as monitoring consistent behavior` (synthesis-level framing; prior drafts misattributed this to Bloom)
 - `finding/Multi-signal confluence outperforms single-indicator detection` (synthesis-level architectural position; prior drafts misattributed this to Bloom)
 - `finding/Reframing sidesteps observer effect and ground-truth opacity` (synthesis-level framing; prior drafts misattributed this to Bloom)

@@ -124,6 +124,15 @@ func (m *Monitor) Ring() *EventRing {
 	return m.ring
 }
 
+// InjectEvent records a synthetic event directly in the Monitor's event ring,
+// making it visible to subsequent pattern evaluations as session history.
+// Used by Ground to record grounding_requested events without going through
+// an EventSource ingestion goroutine. Thread-safe.
+// See ADR-005 Decision 3.
+func (m *Monitor) InjectEvent(e Event) {
+	m.ring.Push(e.SessionID, e)
+}
+
 // AgentForSession resolves the AgentID for a given Firmament session ID.
 // Used by patterns (e.g. DisproportionateEscalationPattern) to look up
 // the agent's cross-session distribution without touching the store directly.

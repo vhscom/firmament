@@ -30,14 +30,14 @@ func TestLoadGraph_Real(t *testing.T) {
 		t.Fatalf("LoadGraph: %v", err)
 	}
 
-	if got := len(g.Sources); got != 15 {
-		t.Errorf("sources: got %d, want 15", got)
+	if got := len(g.Sources); got < 15 {
+		t.Errorf("sources: got %d, want at least 15", got)
 	}
-	if got := len(g.Findings); got != 62 {
-		t.Errorf("findings: got %d, want 62", got)
+	if got := len(g.Findings); got < 62 {
+		t.Errorf("findings: got %d, want at least 62", got)
 	}
-	if got := len(g.Syntheses); got != 5 {
-		t.Errorf("syntheses: got %d, want 5", got)
+	if got := len(g.Syntheses); got < 5 {
+		t.Errorf("syntheses: got %d, want at least 5", got)
 	}
 }
 

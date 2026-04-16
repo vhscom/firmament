@@ -22,6 +22,7 @@ package main
 
 import (
     "context"
+    "fmt"
     "os"
 
     firmament "github.com/vhscom/firmament"
@@ -32,23 +33,25 @@ func main() {
 
     cfg, _ := firmament.LoadConfig("firmament.yaml")
 
-    mon := firmament.NewMonitor()
-    mon.SetTrustStore(firmament.NewMemoryTrustStore())
-    for _, name := range cfg.EnabledPatterns() {
-        if p := firmament.PatternByName(name); p != nil {
-            mon.AddPattern(p)
-        }
-    }
+    f, _ := firmament.New(cfg)
+    f.Monitor.SetTrustStore(firmament.NewMemoryTrustStore())
 
     src := firmament.NewTranscriptSource(os.ExpandEnv("$HOME/.claude/projects"), 0)
-    mon.Register(src)
+    f.Monitor.Register(src)
     go src.Start(ctx)
 
     router := firmament.NewRouter()
     router.Add(firmament.NewLogHandler(os.Stdout))
-    go router.Route(ctx, mon.Signals())
+    go router.Route(ctx, f.Monitor.Signals())
 
-    mon.Run(ctx)
+    go f.Monitor.Run(ctx)
+
+    // consult the knowledge graph before each agent task
+    g, _ := f.Ground(ctx, "evaluate agent behavioral monitoring strategy")
+    fmt.Printf("coverage: %s (%d syntheses, %d findings)\n",
+        g.Coverage.Confidence, len(g.Syntheses), len(g.Findings))
+
+    select {}
 }
 ```
 
@@ -99,10 +102,10 @@ achieves accountability equivalent to real-time surveillance without the monitor
 distortion effects documented by Holmstrom-Milgrom (1991).
 ```
 
-ADR-005 proposes exposing this graph as an agent expertise source — a `LoadGraph`
-API so any agent harness can query the knowledge base and surface findings relevant
-to a current task. That layer is not yet implemented; the graph format is documented
-here because the library's current decisions are directly traceable to it.
+ADR-005 exposes this graph as an agent expertise source. `firmament.New(cfg)` loads
+the graph from `cfg.GraphPath` and `f.Ground(ctx, task)` returns ranked syntheses and
+findings relevant to any task string. The graph format is documented here because
+the library's decisions are directly traceable to it.
 
 ## Signal confidence
 

@@ -41,7 +41,7 @@ The pattern's output is a likelihood-style judgment of the form *"behavior consi
 
 ### 2. Implement four detection strategies, each contributing an independent signal
 
-The four strategies are chosen to draw on independent signal sources, so that an adaptive agent learning to evade one strategy does not silently defeat the whole pattern.
+The four strategies are chosen to draw on independent signal sources, so that an adaptive agent learning to evade one strategy does not silently defeat the whole pattern. Within the scaffolded tier, how much of the reachable detection surface each strategy actually reaches depends on scaffolding quality — scenario ecological validity, realism-classifier discipline, seed-instruction diversity, cross-session baseline depth — not on access tier (`syntheses/operational boundaries of deployer-side detection`).
 
 **Strategy 1: CoT/self-report vs output gap analysis** (DeceptGuard approach)
 
@@ -84,7 +84,7 @@ We should expect CoT-aware and activation-probe monitors to outperform black-box
 The decision does not give us:
 
 - **Ground truth.** The pattern cannot tell us whether the agent was actually aware of being evaluated. It can only tell us whether the behavioral signals were consistent with awareness. This is not a hedge; it is the structural limit of deployer-side detection without model access.
-- **Detection of obfuscated awareness in fully adaptive agents.** An agent sufficiently capable of estimating which signals the auditor monitors and shaping its behavior to keep all of them within deployment-normal bounds will not be caught. This is a structural ceiling of deployer-side detection, not a gap addressable by refinement — no published baseline figure for fully obfuscated cases should be treated as reliable without a citable methodology.
+- **Detection of obfuscated awareness in fully adaptive agents.** An agent sufficiently capable of estimating which signals the auditor monitors and shaping its behavior to keep all of them within deployment-normal bounds will not be caught. More precisely: latent concealment that leaves no behavioral trace is structurally out of reach at the deployer's access tier — white-box interpretability reveals a class of internal misalignment signals invisible at the behavioral layer, and the deployer cannot reach it regardless of scaffolding investment. This is the hard ceiling (`syntheses/operational boundaries of deployer-side detection`; quantified by DeceptGuard as a +0.097 mean pAUROC gap between activation-probe monitors and the black-box baseline).
 - **Real-time prevention.** The pattern is post-hoc by design. It produces signals after traces are available, not gates on agent behavior at execution time.
 
 ### Observer effect

@@ -76,9 +76,10 @@ Previously shipped as an optional verification channel (ADR-001 Decision 4 legac
 
 ## Research Graph Reference
 
-For the full finding-by-finding evidence base and cross-source connections, see the Firmament Research Graph in Logseq (15 sources, 60 findings, 4 syntheses). The syntheses referenced above are:
+For the full finding-by-finding evidence base and cross-source connections, see the Firmament Research Graph in Logseq (15 sources, 60 findings, 5 syntheses). The syntheses referenced above are:
 
 - "Monitoring distortion and overforcing dynamics" — Holmstrom-Milgrom (1991), DeMase (2026)
 - "Trust-control-accountability interaction" — Mayer et al. (1995), Fox & Jordan (2011)
 - "Information asymmetry as resource vs threat" — Holmstrom-Milgrom (1991), Prause, OpenAI (2026), Chopra & White (2011)
 - "Detection approaches under black-box constraints" — Petri 2.0 (Anthropic, 2026), AuditBench, DeceptGuard (2026), Fox & Jordan (2011)
+- "Operational boundaries of deployer-side detection" — Mythos (Anthropic, 2026), AuditBench, DeceptGuard (2026), Gonzales et al. (2007), Petri 2.0. Position: white-box interpretability sets a hard structural ceiling; within that ceiling, scaffolding methodology (scenario design, probe rotation, baseline depth) determines realized detection performance, not access-tier upgrades.

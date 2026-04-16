@@ -202,6 +202,7 @@ Extend the Firmament UI from a proxy dashboard into a session monitor. Four addi
 
 ### What this does not solve
 
+- **Latent misalignment with no behavioral trace.** White-box interpretability reveals internal representations of concealment and strategic manipulation that leave no behavioral footprint when concealment succeeds. The Monitor operates entirely within the deployer-side tier of the access spectrum; it cannot detect what is invisible at the behavioral layer. This is a hard structural ceiling, not a gap closable by architectural refinement (`syntheses/operational boundaries of deployer-side detection`).
 - The egress hook records structural fingerprints, not content. Content-level safety filtering is better handled at the model layer.
 - The `EventRing` and pattern evaluation operate within a single session key. Cross-session tracking requires a separate persistence layer not specified here.
 - The Monitor emits `Signal` values but cannot pause or modify in-flight messages. Real-time intervention requires bridge-layer or hook-level blocking, both outside this scope.

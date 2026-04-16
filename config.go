@@ -18,6 +18,11 @@ type Config struct {
 	// Patterns lists the behavioral pattern names to enable.
 	// Empty or absent enables all built-in patterns.
 	Patterns []string `yaml:"patterns"`
+
+	// GraphPath is the path to a Logseq-format knowledge graph directory.
+	// Empty or absent initializes an empty Graph; Ground returns zero Groundings.
+	// See ADR-005 Decision 7.
+	GraphPath string `yaml:"graph_path"`
 }
 
 // DefaultConfig returns a Config populated with sensible defaults.

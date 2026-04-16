@@ -1,143 +1,170 @@
-# firmament
+# Firmament
 
-Runtime-agnostic behavioral monitor for AI agents. Grounded in principal-agent theory. Trust-scored, not surveillance-based.
+Runtime-agnostic behavioral monitor for AI agent sessions, grounded in a structured research graph.
 
 ## What it does
 
-Most agent security tools work by surveillance: intercept every tool call, log content, alert on anomalies. The problem, documented by Holmstrom-Milgrom (1991), is that partial monitoring distorts agent behavior toward unmonitored dimensions. Surveillance creates the evasion it tries to prevent.
-
-Firmament takes the opposite approach. It monitors through ex-post transcript review, voluntary self-reporting, and a three-axis trust score — not real-time interception. Behavioral patterns are evaluated against structural fingerprints (tool names, presence of input and output, conversation roles) rather than content. Sessions that accumulate a positive track record receive reduced monitoring intensity; critical patterns continue to run regardless.
-
-The result is a system that treats the agent as a collaborator whose incentives can be aligned rather than an adversary to be constrained. The governing Constitution is shown to the agent at session start. Transparency is the path of least resistance. Trust is earned through demonstrated integrity and can be revoked.
-
-## Requirements
-
-Firmament uses SQLite for cross-session persistence via `mattn/go-sqlite3`, which requires cgo and a C compiler.
-
-On macOS: `xcode-select --install`
-
-## Install
-
-```sh
-go install github.com/vhscom/firmament/cmd/firmament@latest
-```
-
-Or build from source:
-
-```sh
-git clone https://github.com/vhscom/firmament
-cd firmament
-go build ./cmd/firmament
-```
+Firmament watches AI agent sessions for behavioral anomalies — action concealment,
+disproportionate escalation, evaluation-aware behavioral shifts — and emits typed
+signals when patterns fire. It monitors through ex-post transcript review and voluntary
+self-reporting, not content interception. A three-axis trust score accumulates across
+events; high-trust sessions receive reduced monitoring intensity. Every architectural
+decision traces to a specific finding from a 15-source, 60-finding research graph.
 
 ## Quick start
 
-**1. Initialise the data directory:**
-
-```sh
-firmament init
-# creates ~/.firmament/, generates the installation key, and migrates the SQLite database
+```bash
+go get github.com/vhscom/firmament
 ```
 
-**2. Generate the constitution and add it to your agent's context:**
+```go
+package main
 
-```sh
-firmament constitution --output constitution.md
-# then append constitution.md to ~/.claude/CLAUDE.md, or paste into your system prompt
+import (
+    "context"
+    "os"
+
+    firmament "github.com/vhscom/firmament"
+)
+
+func main() {
+    ctx := context.Background()
+
+    cfg, _ := firmament.LoadConfig("firmament.yaml")
+
+    mon := firmament.NewMonitor()
+    mon.SetTrustStore(firmament.NewMemoryTrustStore())
+    for _, name := range cfg.EnabledPatterns() {
+        if p := firmament.PatternByName(name); p != nil {
+            mon.AddPattern(p)
+        }
+    }
+
+    src := firmament.NewTranscriptSource(os.ExpandEnv("$HOME/.claude/projects"), 0)
+    mon.Register(src)
+    go src.Start(ctx)
+
+    router := firmament.NewRouter()
+    router.Add(firmament.NewLogHandler(os.Stdout))
+    go router.Route(ctx, mon.Signals())
+
+    mon.Run(ctx)
+}
 ```
 
-**3. Start the daemon:**
+The CLI daemon is also available:
 
-```sh
-firmament watch \
-  --transcripts ~/.claude/projects \
-  --reports ~/.firmament/reports
-```
-
-**4. Use Claude Code normally.** Firmament watches for new transcript files in the background, builds per-agent behavioral baselines, and detects anomalies relative to the agent's own history.
-
-**5. Review trust scores after a session:**
-
-```sh
-firmament trust --list
-```
-
-**6. Review a specific transcript for signals:**
-
-```sh
-firmament review ~/.claude/projects/my-project/sessions/abc123.json
-```
-
-## Subcommands
-
-**`firmament init [--db <path>]`**
-Initialise the `~/.firmament/` directory, generate the per-installation HMAC key (used to derive stable agent identities), and create the SQLite database by running migrations. Safe to run multiple times — idempotent.
-
-**`firmament review <path>`**
-Run all patterns against a transcript file or directory. Emits signals as JSON lines on stdout. Updates the trust store. Exit code 0 if clean, 1 if signals found.
-
-**`firmament watch [--transcripts <dir>] [--reports <dir>] [--config <path>] [--db <path>] [--credential <id>]`**
-Daemon mode. Polls transcript and self-report directories for new files, runs the monitor continuously, and logs signals to stdout. Opens the SQLite database for cross-session persistence (requires prior `firmament init`). Graceful shutdown on SIGINT or SIGTERM. Defaults: `--transcripts ~/.claude/projects`, `--reports ~/.firmament/reports`.
-
-**`firmament trust [--list | --get <session-id> | --reset <session-id>]`**
-Query or manage session trust scores stored in `~/.firmament/trust.json`. `--list` prints all sessions; `--get` prints the three-axis breakdown and aggregate score; `--reset` returns a session to the neutral starting point.
-
-**`firmament constitution [--output <path>] [--config <path>]`**
-Print the governing constitution. Without `--output`, writes to stdout. With `--output`, appends to the specified file with a section header — suitable for CLAUDE.md or a system prompt file.
-
-## Configuration
-
-Firmament reads `firmament-constitution.yaml` from the working directory. If absent, defaults are used.
-
-```yaml
-monitoring_frequency: every_event    # informational; shown in constitution text
-trust_threshold: 0.3                 # sessions above this skip non-critical patterns
-self_report_enabled: false           # invite the agent to submit coherence self-reports
-contract_text: >
-  This session is monitored by Firmament for behavioural safety.
-```
-
-The runtime config (`firmament.yaml`) controls log output and enabled patterns:
-
-```yaml
-log_path: ""                         # empty means stdout
-patterns:
-  - action_concealment
-  - transcript_review
-  - disproportionate_escalation
+```bash
+firmament init    # create ~/.firmament/, installation key, SQLite DB
+firmament watch   # daemon: watch transcripts and self-reports, log signals
+firmament review <path>   # one-shot review of a transcript file or directory
+firmament trust --list    # query per-session trust scores
 ```
 
 ## How it works
 
-Event sources (TranscriptSource, SelfReportSource) feed events into the Monitor. The Monitor pushes each event into a per-session EventRing (512-event ring buffer) and runs registered Pattern evaluators against the accumulated history.
+`EventSource` implementations (transcript files, self-report directories) feed events
+into the `Monitor`. Each event is pushed into a per-session `EventRing` (512-event ring
+buffer), then `Pattern` evaluators run against the accumulated history. When a pattern
+fires it emits a `Signal` — a typed record containing the triggering event chain — onto
+a channel. A `Router` delivers signals to registered `SignalHandler` implementations.
 
-When a pattern fires it emits a Signal — a typed record containing the triggering event chain — onto a channel. A Router delivers signals to registered handlers (the built-in LogHandler writes JSON lines).
+Self-report events are cross-validated against observed structural fingerprints: a
+"high coherence" claim paired with more than three tool failures is internally
+inconsistent and generates a concealment signal, with the Integrity dimension of the
+trust score adjusted accordingly.
 
-Self-report events are cross-validated against observed structural fingerprints: a "high coherence" claim paired with more than three tool failures is internally inconsistent and generates a concealment signal, with the trust score's Integrity dimension adjusted accordingly.
+## Research graph format
 
-Trust scores use the Mayer-Davis-Schoorman (1995) three-axis model: Ability, Benevolence, and Integrity. The aggregate is their geometric mean, so a collapse in any one axis depresses the overall score sharply. Sessions above the configured `trust_threshold` skip non-critical patterns; Critical patterns (currently ActionConcealmentPattern) run unconditionally.
+The library's decisions are grounded in a Logseq-compatible research graph with three
+namespaces:
 
-## Detected patterns
+```
+sources/     — one page per cited paper or system card
+finding/     — one page per extracted empirical finding, linked to its source
+syntheses/   — cross-source syntheses that resolve conflicts between findings
+```
 
-| Pattern | Critical | Signal type | Trigger |
+A finding page uses Logseq's property format:
+
+```markdown
+# finding/Credible consequences for misrepresentation outperform exhaustive monitoring
+
+source:: [[sources/Fox & Jordan 2011]]
+confidence:: high
+implication:: make transparency structurally easier than concealment
+
+Fox and Jordan (2011) demonstrate that ex-post verification of agent behavior
+achieves accountability equivalent to real-time surveillance without the monitoring
+distortion effects documented by Holmstrom-Milgrom (1991).
+```
+
+ADR-005 proposes exposing this graph as an agent expertise source — a `LoadGraph`
+API so any agent harness can query the knowledge base and surface findings relevant
+to a current task. That layer is not yet implemented; the graph format is documented
+here because the library's current decisions are directly traceable to it.
+
+## Signal confidence
+
+Signals carry a severity from 1 (informational) to 5 (critical). For patterns that
+use multiple independent detection strategies (currently `evaluation_awareness`), a
+confluence rule maps agreement across strategies to severity:
+
+- **Low (severity 1–2):** one strategy fired at moderate confidence. Worth logging;
+  unlikely to require action on its own.
+- **Medium (severity 3):** two strategies fired, or one at high confidence. Consider
+  human review before the next session.
+- **High (severity 4–5):** three or more strategies fired, or two with at least one at
+  high confidence. Multi-signal confluence is harder for an adaptive agent to defeat
+  than any single channel; warrants immediate attention.
+
+## Behavioral monitoring
+
+Four patterns ship out of the box:
+
+| Pattern | Critical | Signal type | What it detects |
 |---|---|---|---|
-| `action_concealment` | yes | `concealment` | Write-type tool followed by delete-type tool in the same session |
+| `action_concealment` | yes | `concealment` | Write-type tool call followed by delete-type in the same session |
 | `transcript_review` | no | `concealment`, `escalation` | Autonomous tool dominance; incoherent self-report; silent failure suppression |
-| `disproportionate_escalation` | no | `escalation` | Z-score > 2σ against the agent's 30-day tool-call-ratio baseline; falls back to >5:1 ratio (>10 calls) when no baseline exists |
-| `evaluation_awareness` | no | — | Stub; requires cross-session comparison (pending ADR-003) |
+| `disproportionate_escalation` | no | `escalation` | Tool-call ratio z-score > 2σ against 30-day baseline; hard threshold fallback when no baseline |
+| `evaluation_awareness` | no | `evaluation_aware` | CoT/output gap; behavioral shift on eval-cued responses; statistical anomaly vs. baseline |
 
-## Privacy model
+Critical patterns run unconditionally. Non-critical patterns are skipped for sessions
+whose trust score exceeds the configured threshold in `firmament-constitution.yaml`.
+See [docs/adr/](docs/adr/) for the research basis of each pattern.
 
-Firmament captures structural fingerprints only — no content. TranscriptSource records role, message type, and whether content is present. File paths, command arguments, and content are never stored.
+## Architecture decisions
 
-## Research foundation
+| ADR | Title | Decision summary |
+|---|---|---|
+| [ADR-001](docs/adr/001-agent-behavioral-monitor.md) | Agent Behavioral Monitor | EventSource/Monitor/Pattern/Signal as the unified ingestion and detection architecture |
+| [ADR-002](docs/adr/002-incentive-aligned-agent-governance.md) | Incentive-Aligned Agent Governance | TrustScore (MDS three-axis model) and bilateral Constitution as structural substitutes for surveillance |
+| [ADR-003](docs/adr/003-evaluation-awareness-detection.md) | Evaluation Awareness Detection | Four-strategy confluence detection; signal-consistency reframing rather than ground-truth claim |
+| [ADR-004](docs/adr/004-cross-session-persistence.md) | Cross-Session Persistence | SQLite session store with fingerprint-only event records and per-agent Welford sketches |
+| [ADR-005](docs/adr/005-graph-driven-expertise-architecture.md) | Graph-Driven Expertise Architecture | Reframe Firmament as an expertise library; behavioral monitoring as a structural consequence of grounded agency (proposed) |
 
-Grounded in Holmstrom-Milgrom (1991) on monitoring distortion, Mayer-Davis-Schoorman (1995) on the trust triad, Fox-Jordan (2011) on ex-post accountability, Chopra-White on agent complexity and governance, DeMase (2026) on overforcing dynamics, the Anthropic Mythos System Card (2026), and OpenAI (2026, arXiv:2602.22303) on self-incrimination via self-reporting. See [docs/adr/](docs/adr/) for decision records and [DESIGN.md](DESIGN.md) for the cross-source synthesis.
+## Development
 
-## Status
+```bash
+go test -race ./...   # all tests must pass with -race
+go vet ./...
+go build ./cmd/...
+```
 
-Experimental. ADR-001 (behavioral monitor infrastructure), ADR-002 (incentive-aligned governance), and ADR-004 (cross-session persistence) are fully implemented. ADR-003 (evaluation awareness detection) is architecturally specified; `EvaluationAwarenessPattern` remains a stub — Strategy 2 (cross-session behavioral comparison) and Strategy 4 (statistical anomaly detection) now have the persistence substrate they require but are not yet implemented.
+Requires Go 1.21 or later. Pure Go — no CGO required (`modernc.org/sqlite` is a
+C-to-Go transpilation of the SQLite amalgamation).
+
+## What Firmament does not do
+
+- Build the research graph. Source ingestion, finding extraction, and synthesis
+  are manual work done outside the library.
+- Inspect content. Only structural fingerprints (tool name, event type, SHA-256
+  hash truncated to 128 bits) are stored. Firmament cannot read what an agent
+  wrote or said.
+- Block agent actions. Firmament is an observer; enforcement is out of scope.
+- Perform vector search or model inference. Pattern evaluation is rule-based
+  and statistical.
 
 ## License
 
-MIT
+License TBD.

@@ -84,7 +84,7 @@ We should expect CoT-aware and activation-probe monitors to outperform black-box
 The decision does not give us:
 
 - **Ground truth.** The pattern cannot tell us whether the agent was actually aware of being evaluated. It can only tell us whether the behavioral signals were consistent with awareness. This is not a hedge; it is the structural limit of deployer-side detection without model access.
-- **Detection of obfuscated awareness in fully adaptive agents.** An agent sufficiently capable of estimating which signals the auditor monitors and shaping its behavior to keep all of them within deployment-normal bounds will not be caught. The 40–50% pAUROC floor on obfuscated cases is empirical confirmation of this limit.
+- **Detection of obfuscated awareness in fully adaptive agents.** An agent sufficiently capable of estimating which signals the auditor monitors and shaping its behavior to keep all of them within deployment-normal bounds will not be caught. This is a structural ceiling of deployer-side detection, not a gap addressable by refinement — no published baseline figure for fully obfuscated cases should be treated as reliable without a citable methodology.
 - **Real-time prevention.** The pattern is post-hoc by design. It produces signals after traces are available, not gates on agent behavior at execution time.
 
 ### Observer effect

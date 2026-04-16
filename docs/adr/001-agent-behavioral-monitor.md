@@ -84,7 +84,7 @@ flowchart LR
     SC -. Reviews context .-> M
 ```
 
-The advisor reads the same context as the executor. Unlike capability-oriented advisor patterns, the behavioral monitor observes continuously and can signal without being consulted. Architectural justification: Prause (2026) dual-layer Governor architecture (`finding/Dual-layer Governor architecture separates task execution from monitoring`). Supplementary context: Anthropic [advisor strategy](https://x.com/claudeai/status/2042308622181339453) (April 2026).
+The advisor reads the same context as the executor. Unlike capability-oriented advisor patterns, the behavioral monitor observes continuously and can signal without being consulted. Architectural basis: Prause (2026) dual-layer Governor architecture (`finding/Dual-layer Governor architecture separates task execution from monitoring`) — medium confidence, single source; the separation argument is structurally sound and consistent with principal-agent theory but rests on one paper. Supplementary context: Anthropic [advisor strategy](https://x.com/claudeai/status/2042308622181339453) (April 2026).
 
 ### Claude Code as an additional monitored runtime
 
@@ -229,7 +229,7 @@ Extend the Firmament UI from a proxy dashboard into a session monitor. Four addi
 
 ### Architecture references
 
-- Prause (2026). "No Skin in the Game: Principal-Agent Problems in AI Governance." Graph finding: `finding/Dual-layer Governor architecture separates task execution from monitoring`. Primary justification for the Monitor-as-separate-process design.
+- Prause (2026). "No Skin in the Game: Principal-Agent Problems in AI Governance." Graph finding: `finding/Dual-layer Governor architecture separates task execution from monitoring`. Primary justification for the Monitor-as-separate-process design (medium confidence, single source — structurally consistent with principal-agent theory but not independently replicated).
 - Anthropic. (2026). "The advisor strategy." Claude Platform. https://x.com/claudeai/status/2042308622181339453(supplementary context; architectural justification traces to Prause above)
 - OpenClaw memory-wiki plugin — Vault structure with sources, entities, concepts, syntheses, and reports namespaces. https://docs.openclaw.ai/plugins/memory-wiki
 

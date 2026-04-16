@@ -51,7 +51,9 @@ The event subscription system, per-connection session tracking, and agent creden
 
 ### The advisor strategy
 
-Anthropic's advisor strategy (April 2026, https://x.com/claudeai/status/2042308622181339453) pairs a stronger model (Opus) as an on-demand advisor with a lighter executor (Sonnet/Haiku). The executor runs the main loop; the advisor is consulted on hard decisions. Both share context.
+Prause (2026) argues that a dual-layer Governor architecture — one that separates task execution from monitoring — is structurally necessary to avoid the moral hazard that arises when the monitoring function is embedded in the executing agent ("No Skin in the Game: Principal-Agent Problems in AI Governance"). The graph finding `finding/Dual-layer Governor architecture separates task execution from monitoring` grounds the core architectural choice here: the Monitor must be a distinct process from the executor, not a module running inside it.
+
+Anthropic's advisor strategy (April 2026, https://x.com/claudeai/status/2042308622181339453) provides a practical instantiation of this principle: a stronger model (Opus) acts as an on-demand advisor to a lighter executor (Sonnet/Haiku). The executor runs the main loop; the advisor is consulted on hard decisions. Both share context.
 
 Birdcage's `checkCloakTrigger` already prototypes this at the infrastructure level: the trigger function is the advisor (evaluates accumulated state), the gateway is the executor (handles requests), the event log is the shared context. The behavioral monitor generalizes this: the Monitor is the advisor, the target agent is the executor, the EventRing and EventSource are the shared context. The key difference: in Birdcage the advisor observes continuously rather than being consulted on-demand, and can signal the executor without being asked.
 
@@ -82,7 +84,7 @@ flowchart LR
     SC -. Reviews context .-> M
 ```
 
-The advisor reads the same context as the executor. Unlike capability-oriented advisor patterns, the behavioral monitor observes continuously and can signal without being consulted. Adapted from the [advisor strategy](https://x.com/claudeai/status/2042308622181339453).
+The advisor reads the same context as the executor. Unlike capability-oriented advisor patterns, the behavioral monitor observes continuously and can signal without being consulted. Architectural justification: Prause (2026) dual-layer Governor architecture (`finding/Dual-layer Governor architecture separates task execution from monitoring`). Supplementary context: Anthropic [advisor strategy](https://x.com/claudeai/status/2042308622181339453) (April 2026).
 
 ### Claude Code as an additional monitored runtime
 
@@ -227,7 +229,8 @@ Extend the Firmament UI from a proxy dashboard into a session monitor. Four addi
 
 ### Architecture references
 
-- Anthropic. (2026). "The advisor strategy." Claude Platform. https://x.com/claudeai/status/2042308622181339453
+- Prause (2026). "No Skin in the Game: Principal-Agent Problems in AI Governance." Graph finding: `finding/Dual-layer Governor architecture separates task execution from monitoring`. Primary justification for the Monitor-as-separate-process design.
+- Anthropic. (2026). "The advisor strategy." Claude Platform. https://x.com/claudeai/status/2042308622181339453(supplementary context; architectural justification traces to Prause above)
 - OpenClaw memory-wiki plugin — Vault structure with sources, entities, concepts, syntheses, and reports namespaces. https://docs.openclaw.ai/plugins/memory-wiki
 
 ---

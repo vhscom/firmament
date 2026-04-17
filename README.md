@@ -170,4 +170,4 @@ C-to-Go transpilation of the SQLite amalgamation).
 
 ## License
 
-License TBD.
+AGPL-3.0. See [LICENSE](LICENSE).

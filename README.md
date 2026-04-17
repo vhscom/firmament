@@ -1,5 +1,9 @@
 # Firmament
 
+[![CI](https://img.shields.io/github/actions/workflow/status/vhscom/firmament/ci.yml?style=for-the-badge&label=CI)](https://github.com/vhscom/firmament/actions/workflows/ci.yml)
+[![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
+[![License](https://img.shields.io/badge/License-AGPL_3.0-blue?style=for-the-badge)](LICENSE)
+
 Runtime-agnostic behavioral monitor for AI agent sessions, grounded in a structured research graph.
 
 ## What it does

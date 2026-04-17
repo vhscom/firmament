@@ -273,9 +273,7 @@ func (g *Graph) load() error {
 			}
 			var tags []string
 			if sv := props["supports"]; sv != "" {
-				for _, link := range extractWikiLinks(sv) {
-					tags = append(tags, link)
-				}
+				tags = append(tags, extractWikiLinks(sv)...)
 			}
 			rawFinds = append(rawFinds, rawFinding{
 				name:       entityName,

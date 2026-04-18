@@ -120,7 +120,7 @@ func extractSynthesisPosition(content string) string {
 	for _, line := range strings.Split(content, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if !foundTitle {
-			if strings.Contains(trimmed, "# syntheses/") {
+			if strings.Contains(trimmed, "# syntheses/") || strings.Contains(trimmed, "# synthesis/") {
 				foundTitle = true
 			}
 			continue
@@ -282,8 +282,12 @@ func (g *Graph) load() error {
 				tags:       tags,
 			})
 
-		case strings.HasPrefix(fname, "syntheses___"):
-			entityName := nameFromFile(fname, "syntheses___")
+		case strings.HasPrefix(fname, "syntheses___") || strings.HasPrefix(fname, "synthesis___"):
+			prefix := "syntheses___"
+			if strings.HasPrefix(fname, "synthesis___") {
+				prefix = "synthesis___"
+			}
+			entityName := nameFromFile(fname, prefix)
 			props := parseLogseqProperties(content)
 			var srcLinks []string
 			if sv := props["sources"]; sv != "" {
@@ -364,6 +368,19 @@ func (g *Graph) load() error {
 			Sources:  srcs,
 			Findings: finds,
 		})
+	}
+
+	// Populate Sources transitively from Findings when no direct sources:: property.
+	for _, syn := range syntheses {
+		if len(syn.Sources) == 0 {
+			seen := make(map[string]bool)
+			for _, f := range syn.Findings {
+				if f.Source != nil && !seen[f.Source.Name] {
+					seen[f.Source.Name] = true
+					syn.Sources = append(syn.Sources, f.Source)
+				}
+			}
+		}
 	}
 
 	g.mu.Lock()

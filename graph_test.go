@@ -229,6 +229,44 @@ func TestLoadGraph_WikilinkExtraction(t *testing.T) {
 	}
 }
 
+// strudelGraphPath returns the path to the local Strudel Graph,
+// or skips the test if the path is absent.
+func strudelGraphPath(t *testing.T) string {
+	t.Helper()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("cannot resolve home directory")
+	}
+	path := filepath.Join(home, "Documents", "Claude", "Projects", "Strudel Graph", "pages")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		t.Skip("strudel graph not present at " + path)
+	}
+	return path
+}
+
+func TestLoadGraph_StrudelGraph_SynthesesWithTransitiveSources(t *testing.T) {
+	path := strudelGraphPath(t)
+
+	g, err := LoadGraph(path)
+	if err != nil {
+		t.Fatalf("LoadGraph: %v", err)
+	}
+
+	if got := len(g.Syntheses); got != 4 {
+		t.Errorf("syntheses: got %d, want 4", got)
+	}
+
+	for _, s := range g.Syntheses {
+		if len(s.Sources) == 0 {
+			t.Errorf("synthesis %q has no sources (transitive path failed)", s.Name)
+		}
+		if s.Position == "" {
+			t.Errorf("synthesis %q has empty Position", s.Name)
+		}
+		t.Logf("synthesis %q: %d sources, %d findings", s.Name, len(s.Sources), len(s.Findings))
+	}
+}
+
 func TestNameFromFile(t *testing.T) {
 	cases := []struct {
 		filename string

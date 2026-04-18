@@ -76,7 +76,7 @@ Previously shipped as an optional verification channel (ADR-001 Decision 4 legac
 
 ## Research Graph Reference
 
-For the full finding-by-finding evidence base and cross-source connections, see the Firmament Research Graph in Logseq (15 sources, 60 findings, 5 syntheses). The syntheses referenced above are:
+For the full finding-by-finding evidence base and cross-source connections, see the Firmament Research Graph in Logseq (17 sources, 77 findings, 5 syntheses). The syntheses referenced above are:
 
 - "Monitoring distortion and overforcing dynamics" — Holmstrom-Milgrom (1991), DeMase (2026)
 - "Trust-control-accountability interaction" — Mayer et al. (1995), Fox & Jordan (2011)

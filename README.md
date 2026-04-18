@@ -13,7 +13,7 @@ disproportionate escalation, evaluation-aware behavioral shifts — and emits ty
 signals when patterns fire. It monitors through ex-post transcript review and voluntary
 self-reporting, not content interception. A three-axis trust score accumulates across
 events; high-trust sessions receive reduced monitoring intensity. Every architectural
-decision traces to a specific finding from a 15-source, 60-finding research graph:
+decision traces to a specific finding from a 17-source, 77-finding research graph:
 
 ![research graph](./docs/graph.png)
 

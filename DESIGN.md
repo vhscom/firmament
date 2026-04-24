@@ -56,7 +56,7 @@ ADR-004 closes the gap identified in ADR-001 ("cross-session tracking requires a
 
 ### Design decisions
 
-**SQLite via mattn/go-sqlite3.** The query patterns required by the signal layer (percentile estimates across rolling windows of per-agent sessions) are natively SQL. Pure-stdlib JSON-file-per-session loses at query time; embedded key-value stores force aggregate re-implementation in application code. `mattn/go-sqlite3` binds directly to the upstream SQLite amalgamation (cgo), so security fixes land via amalgamation updates rather than an independent porting cycle. The cgo build dependency and the non-stdlib addition both earn their keep.
+**SQLite via modernc.org/sqlite.** The query patterns required by the signal layer (percentile estimates across rolling windows of per-agent sessions) are natively SQL. Pure-stdlib JSON-file-per-session loses at query time; embedded key-value stores force aggregate re-implementation in application code. `modernc.org/sqlite` is a C-to-Go transpilation of the upstream SQLite amalgamation — no cgo required. See the ADR-004 addendum (2026-04-15) for the full rationale for the switch from the originally specified `mattn/go-sqlite3`.
 
 **Four tables, fingerprint-only event records.** `sessions`, `session_events`, `pattern_hits`, and `agent_baselines`. No raw content is stored — `session_events` holds a 128-bit SHA-256 fingerprint of each event. This is Fox-Jordan's "accountability through structured reporting, not total surveillance" (2011) expressed at the storage layer. The `pattern_hits` child table (not a JSON blob on `sessions`) keeps longitudinal queries cheap: "all sessions where EvaluationAwarenessPattern fired with severity ≥ 3" is a single-JOIN query.
 

@@ -9,7 +9,6 @@
 ```
 .                     # firmament package: core types and logic
 cmd/firmament/        # main daemon binary
-cmd/firmament-hook/   # Claude Code companion hook binary
 docs/adr/             # Architecture Decision Records
 ```
 
@@ -24,7 +23,6 @@ All core types (`Event`, `Signal`, `Pattern`, `Monitor`, etc.) live in the root 
 | `Permission`, `AllPermissions`, `ResolvePermissions` | `permission.go` |
 | `EventRing` | `eventring.go` |
 | `EventSource` (interface) | `eventsource.go` |
-| `HookEventSource` | `eventsource_hook.go` |
 | `Pattern` (interface), `ActionConcealmentPattern`, `PatternByName` | `patterns.go` |
 | `Monitor` | `monitor.go` |
 | `Credential`, `CredentialStore`, `CredentialTier` | `credential.go` |
@@ -68,9 +66,8 @@ All tests must pass with `-race`. No skipped tests in CI.
 - No hardcoded secrets, tokens, or credentials.
 - HTTP handlers: `Content-Type` check, `http.MaxBytesReader` body cap.
 - No path traversal: never use user-supplied strings as file paths without validation.
-- Input from hooks (stdin, HTTP) is treated as untrusted.
+- Self-report and transcript input is treated as untrusted.
 - `ValidSignalTypes` is an allowlist; extending it requires a code change.
-- Hook server binds loopback only by default.
 
 ## Commit style
 
@@ -86,5 +83,6 @@ Examples:
 Minimal. Currently:
 - `github.com/google/uuid` — event ID generation
 - `gopkg.in/yaml.v3` — config file parsing
+- `modernc.org/sqlite` — pure-Go SQLite driver (C-to-Go transpilation)
 
 Avoid adding frameworks. Prefer standard library.

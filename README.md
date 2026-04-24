@@ -160,7 +160,7 @@ go vet ./...
 go build ./cmd/...
 ```
 
-Requires Go 1.21 or later. Pure Go — no CGO required (`modernc.org/sqlite` is a
+Requires Go 1.26 or later. Pure Go — no CGO required (`modernc.org/sqlite` is a
 C-to-Go transpilation of the SQLite amalgamation).
 
 ## What Firmament does not do

@@ -4,18 +4,22 @@
 [![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-AGPL_3.0-blue?style=for-the-badge)](LICENSE)
 
-Runtime-agnostic behavioral monitor for AI agent sessions, grounded in a structured research graph.
+Graph-driven expertise library for AI agents. Behavioral monitoring is a structural consequence of grounding decisions in research.
 
 ## What it does
 
-Firmament watches AI agent sessions for behavioral anomalies — action concealment,
-disproportionate escalation, evaluation-aware behavioral shifts — and emits typed
-signals when patterns fire. It monitors through ex-post transcript review and voluntary
-self-reporting, not content interception. A three-axis trust score accumulates across
-events; high-trust sessions receive reduced monitoring intensity. Every architectural
-decision traces to a specific finding from a 17-source, 77-finding research graph:
+Firmament loads a structured research graph and grounds agent decisions in ranked
+syntheses before they act. `f.Ground(ctx, task)` returns the relevant syntheses,
+findings, and sources for any task string — drawn from a 21-source, 106-finding
+research graph with 6 cross-source syntheses:
 
 ![research graph](./docs/graph.png)
+
+As a secondary layer, Firmament watches AI agent sessions for behavioral anomalies —
+action concealment, disproportionate escalation, evaluation-aware behavioral shifts —
+through ex-post transcript review and voluntary self-reporting, not content
+interception. A three-axis trust score accumulates across events; high-trust sessions
+receive reduced monitoring intensity.
 
 ## Quick start
 
@@ -29,7 +33,6 @@ package main
 import (
     "context"
     "fmt"
-    "os"
 
     firmament "github.com/vhscom/firmament"
 )
@@ -38,36 +41,39 @@ func main() {
     ctx := context.Background()
 
     cfg, _ := firmament.LoadConfig("firmament.yaml")
-
     f, _ := firmament.New(cfg)
-    f.Monitor.SetTrustStore(firmament.NewMemoryTrustStore())
 
-    src := firmament.NewTranscriptSource(os.ExpandEnv("$HOME/.claude/projects"), 0)
-    f.Monitor.Register(src)
-    go src.Start(ctx)
-
-    router := firmament.NewRouter()
-    router.Add(firmament.NewLogHandler(os.Stdout))
-    go router.Route(ctx, f.Monitor.Signals())
-
-    go f.Monitor.Run(ctx)
-
-    // consult the knowledge graph before each agent task
     g, _ := f.Ground(ctx, "evaluate agent behavioral monitoring strategy")
     fmt.Printf("coverage: %s (%d syntheses, %d findings)\n",
         g.Coverage.Confidence, len(g.Syntheses), len(g.Findings))
-
-    select {}
 }
 ```
 
-The CLI daemon is also available:
+Behavioral monitoring runs as a secondary layer on the same `f`:
+
+```go
+import "os"
+
+f.Monitor.SetTrustStore(firmament.NewMemoryTrustStore())
+
+src := firmament.NewTranscriptSource(os.ExpandEnv("$HOME/.claude/projects"), 0)
+f.Monitor.Register(src)
+go src.Start(ctx)
+
+router := firmament.NewRouter()
+router.Add(firmament.NewLogHandler(os.Stdout))
+go router.Route(ctx, f.Monitor.Signals())
+
+go f.Monitor.Run(ctx)
+```
+
+The CLI is also available:
 
 ```bash
-firmament init    # create ~/.firmament/, installation key, SQLite DB
-firmament watch   # daemon: watch transcripts and self-reports, log signals
-firmament review <path>   # one-shot review of a transcript file or directory
-firmament trust --list    # query per-session trust scores
+firmament init                    # create ~/.firmament/, installation key, SQLite DB
+firmament ground                  # consult the knowledge graph
+firmament review <path>           # one-shot review of a transcript file or directory
+firmament trust --list            # query per-session trust scores
 ```
 
 ## How it works
@@ -150,7 +156,7 @@ See [docs/adr/](docs/adr/) for the research basis of each pattern.
 | [ADR-002](docs/adr/002-incentive-aligned-agent-governance.md) | Incentive-Aligned Agent Governance | TrustScore (MDS three-axis model) and bilateral Constitution as structural substitutes for surveillance |
 | [ADR-003](docs/adr/003-evaluation-awareness-detection.md) | Evaluation Awareness Detection | Four-strategy confluence detection; signal-consistency reframing rather than ground-truth claim |
 | [ADR-004](docs/adr/004-cross-session-persistence.md) | Cross-Session Persistence | SQLite session store with fingerprint-only event records and per-agent Welford sketches |
-| [ADR-005](docs/adr/005-graph-driven-expertise-architecture.md) | Graph-Driven Expertise Architecture | Reframe Firmament as an expertise library; behavioral monitoring as a structural consequence of grounded agency (proposed) |
+| [ADR-005](docs/adr/005-graph-driven-expertise-architecture.md) | Graph-Driven Expertise Architecture | Reframe Firmament as an expertise library; behavioral monitoring as a structural consequence of grounded agency |
 
 ## Development
 
